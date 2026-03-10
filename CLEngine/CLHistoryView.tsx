@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useGame } from '../context/GameContext';
 import { CompetitionType, MatchStatus, ViewState } from '../types';
-import LigaMistrzowBg from '../Graphic/themes/liga_mistrzow.png';
+import LigaMistrzowBg from '../../Graphic/themes/liga_mistrzow.png';
 
 // ── Rundy — na razie tylko R1Q. Kolejne dodaj tutaj. ──────────────────────
 const CL_ROUNDS = [
