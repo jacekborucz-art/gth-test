@@ -6,6 +6,7 @@ import { Card } from '../ui/Card';
 import { LineupService } from '../../services/LineupService';
 import { MailDetailsModal } from '../modals/MailDetailsModal';
 import { FinanceService } from '../../services/FinanceService';
+import { getClubLogo } from '../../resources/ClubLogoAssets';
 
 export const Dashboard: React.FC = () => {
   const { 
@@ -581,12 +582,22 @@ const boardConfidence = useMemo(() => {
               <div className="absolute left-[-10px] top-10 text-9xl font-black italic text-white/[0.02] select-none pointer-events-none">
                  {myClub?.shortName}
               </div>
-              <div className="p-7 relative z-10">
+              <div className="py-[20.5px] px-7 relative z-10">
                  <div className="flex items-center gap-5 mb-8">
-                    <div className="w-16 h-16 rounded-2xl flex flex-col overflow-hidden border border-white/20 shadow-2xl transform -rotate-3 group-hover:rotate-0 transition-transform">
-                       <div className="flex-1" style={{ backgroundColor: myClub?.colorsHex[0] }} />
-                       <div className="flex-1" style={{ backgroundColor: myClub?.colorsHex[1] }} />
-                    </div>
+                    {getClubLogo(myClub?.id || '') ? (
+                      <div className="relative z-50 w-[74px] h-[74px] shrink-0 transform -rotate-3 group-hover:rotate-0 transition-transform">
+                        <img
+                          src={getClubLogo(myClub?.id || '')}
+                          alt={myClub?.name}
+                          className="w-full h-full object-contain drop-shadow-2xl"
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-16 h-16 rounded-2xl flex flex-col overflow-hidden border border-white/20 shadow-2xl transform -rotate-3 group-hover:rotate-0 transition-transform">
+                        <div className="flex-1" style={{ backgroundColor: myClub?.colorsHex[0] }} />
+                        <div className="flex-1" style={{ backgroundColor: myClub?.colorsHex[1] }} />
+                      </div>
+                    )}
                     <div>
                        <h3 className="text-xl font-black italic uppercase tracking-tighter text-white leading-tight">{myClub?.name}</h3>
                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mt-1">Status: Aktywny</p>

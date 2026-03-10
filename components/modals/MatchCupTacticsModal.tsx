@@ -103,13 +103,20 @@ export const MatchCupTacticsModal: React.FC<MatchCupTacticsModalProps> = ({
     const isNaturalPos = p && p.position === expectedRole;
     const isGkMismatch = p && ((p.position === 'GK' && expectedRole !== 'GK') || (p.position !== 'GK' && expectedRole === 'GK'));
 
+    const selectedStarterRole = (selectedSlot?.loc === 'START' && selectedSlot.index !== undefined)
+      ? tactic.slots[selectedSlot.index]?.role
+      : null;
+    const isPositionMatch = loc === 'BENCH' && !isOut && p !== null && selectedStarterRole !== null && p.position === selectedStarterRole;
+
     return (
       <div 
         onClick={() => !isRedBlocked && handleSlotClick(pId, loc, index)}
         className={`relative w-full h-20 mb-3 rounded-[24px] transition-all duration-500 group overflow-visible
           ${isSelected 
             ? 'bg-blue-500/20 border-blue-400 shadow-[0_0_30px_rgba(59,130,246,0.3)] scale-[1.02] z-30' 
-            : 'bg-white/5 border-white/10 hover:bg-white/[0.08] hover:border-white/20'
+            : isPositionMatch
+              ? 'bg-emerald-500/10 border-emerald-400/60 shadow-[0_0_22px_rgba(52,211,153,0.35)] scale-[1.01]'
+              : 'bg-white/5 border-white/10 hover:bg-white/[0.08] hover:border-white/20'
           }
           ${isOut ? 'opacity-30 grayscale pointer-events-none' : 'cursor-pointer'}
           ${isRedBlocked ? 'bg-black/60 opacity-80 cursor-not-allowed grayscale' : ''}
@@ -118,6 +125,11 @@ export const MatchCupTacticsModal: React.FC<MatchCupTacticsModalProps> = ({
           border backdrop-blur-xl
         `}
       >
+        {isPositionMatch && (
+          <div className="absolute -right-2 -top-2 z-30 px-2 py-0.5 rounded-full bg-emerald-500 border border-emerald-300 shadow-[0_0_12px_rgba(52,211,153,0.7)] flex items-center gap-1">
+            <span className="text-[7px] font-black text-white uppercase tracking-wider">PASUJE</span>
+          </div>
+        )}
         {/* Wskaźnik roli taktycznej */}
         <div className={`absolute -left-6 top-1/2 -translate-y-1/2 w-14 h-14 rounded-2xl flex flex-col items-center justify-center shadow-2xl border-2 z-20 transition-all duration-500
           ${loc === 'BENCH' ? 'hidden' : ''}

@@ -2433,11 +2433,16 @@ if (activePlayerTempo === 'SLOW') {
 
             <div className="flex-none shrink-0 relative z-20 w-[1150px] h-[800px] mx-auto">
                {penaltyNotice && (
-                  <div className="absolute inset-0 z-[100] flex items-center justify-center pointer-events-none">
-                     <div className="bg-white/50 backdrop-blur-sm px-10 py-6 rounded-2xl shadow-[0_0_50px_rgba(255,255,255,0.4)] border-4 border-red-600 animate-bounce">
-                        <h2 className="text-red-600 text-4xl font-black italic uppercase tracking-tighter text-center">
-                           📯 JEDENSTKA DLA ⚽ {penaltyNotice.toUpperCase()}!
-                        </h2>
+                  <div className="absolute inset-0 z-[100] flex items-center justify-center pointer-events-none" style={{ transform: 'rotateX(-24deg)' }}>
+                     <div className="relative flex flex-col items-center gap-3 bg-slate-950/95 backdrop-blur-2xl border-y-4 border-red-500 px-16 py-8 rounded-[40px] shadow-[0_0_120px_rgba(239,68,68,0.7)] animate-pulse">
+                        <div className="absolute inset-0 rounded-[40px] pointer-events-none" style={{ boxShadow: 'inset 0 0 60px rgba(239,68,68,0.15)' }} />
+                        <span className="text-[10px] font-black text-red-500 tracking-[0.5em] uppercase">Sędzia dyktuje</span>
+                        <div className="flex items-center gap-4">
+                           <span className="text-5xl filter drop-shadow-[0_0_20px_rgba(239,68,68,0.9)]">🟥</span>
+                           <span className="text-6xl font-black italic text-white uppercase tracking-tighter drop-shadow-[0_0_30px_rgba(255,255,255,0.4)]">JEDENASTKA!</span>
+                           <span className="text-5xl filter drop-shadow-[0_0_20px_rgba(239,68,68,0.9)]">🟥</span>
+                        </div>
+                        <span className="text-lg font-black text-red-400 uppercase tracking-[0.3em]">{penaltyNotice.toUpperCase()}</span>
                      </div>
                   </div>
                )}

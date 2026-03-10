@@ -92,6 +92,15 @@ export const MatchLiveView = () => {
     result?: MatchEventType
   } | null>(null);
 
+  const [activeVAR, setActiveVAR] = useState<{
+    side: 'HOME' | 'AWAY',
+    scorerName: string,
+    minute: number,
+    phase: 'CHECKING' | 'VERDICT',
+    verdict?: 'GOAL' | 'NO_GOAL'
+  } | null>(null);
+  const varDataRef = useRef<{ side: 'HOME' | 'AWAY', scorerName: string, minute: number } | null>(null);
+
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   const getContrastColor = (hexColor: string): string => {
@@ -305,6 +314,45 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
     }
   }, [activePenalty?.phase, matchState, ctx, setMatchState]);
 
+  useEffect(() => {
+    if (!activeVAR) return;
+    if (activeVAR.phase === 'CHECKING') {
+      const timer = setTimeout(() => {
+        const verdict: 'GOAL' | 'NO_GOAL' = Math.floor(Math.random() * 2) === 0 ? 'NO_GOAL' : 'GOAL';
+        setActiveVAR(prev => prev ? { ...prev, phase: 'VERDICT', verdict } : null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+    if (activeVAR.phase === 'VERDICT' && activeVAR.verdict) {
+      const isVarHome = activeVAR.side === 'HOME';
+      setMatchState(prev => {
+        if (!prev) return prev;
+        const varLog: MatchLogEntry = activeVAR.verdict === 'NO_GOAL'
+          ? { id: `VAR_DISALLOWED_${activeVAR.minute}`, minute: activeVAR.minute, text: `🚫 VAR: Bramka ${activeVAR.scorerName} NIEUZNANA! SPALONY!`, type: MatchEventType.GENERIC, teamSide: activeVAR.side }
+          : { id: `VAR_CONFIRMED_${activeVAR.minute}`, minute: activeVAR.minute, text: `✅ VAR: Bramka ${activeVAR.scorerName} ZATWIERDZONA! Gol uznany.`, type: MatchEventType.GENERIC, teamSide: activeVAR.side };
+        if (activeVAR.verdict === 'NO_GOAL') {
+          const newHomeGoals = isVarHome
+            ? prev.homeGoals.map(g => g.playerName === activeVAR.scorerName && g.minute === activeVAR.minute && !g.varDisallowed ? { ...g, varDisallowed: true } : g)
+            : prev.homeGoals;
+          const newAwayGoals = !isVarHome
+            ? prev.awayGoals.map(g => g.playerName === activeVAR.scorerName && g.minute === activeVAR.minute && !g.varDisallowed ? { ...g, varDisallowed: true } : g)
+            : prev.awayGoals;
+          return {
+            ...prev,
+            homeScore: isVarHome ? prev.homeScore - 1 : prev.homeScore,
+            awayScore: !isVarHome ? prev.awayScore - 1 : prev.awayScore,
+            homeGoals: newHomeGoals,
+            awayGoals: newAwayGoals,
+            logs: [varLog, ...prev.logs]
+          };
+        }
+        return { ...prev, logs: [varLog, ...prev.logs] };
+      });
+      const closeTimer = setTimeout(() => setActiveVAR(null), 3000);
+      return () => clearTimeout(closeTimer);
+    }
+  }, [activeVAR?.phase, activeVAR?.verdict, setMatchState]);
+
   const handleTacticsClose = (newLineup: Lineup, subsCount: number, subsHistory: SubstitutionRecord[]) => {
     setMatchState(prev => {
       if (!prev) return prev;
@@ -325,7 +373,7 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
 
   useEffect(() => {
     if (!matchState || matchState.isPaused || matchState.isPausedForEvent || 
-        matchState.isFinished || matchState.isHalfTime || isTacticsOpen || isCelebratingGoal || !env || activePenalty) return;
+        matchState.isFinished || matchState.isHalfTime || isTacticsOpen || isCelebratingGoal || !env || activePenalty || activeVAR) return;
 
     const tickInterval = matchState.speed === 5 ? 120 
   : matchState.speed === 3.5 ? 200 
@@ -1074,7 +1122,22 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
         nextAwayLineup.startingXI = autoRemoveInjured(nextAwayLineup.startingXI, nextAwayInjuries, 'AWAY');
         updatedLogs = [...carriedOffLogs, ...updatedLogs];
 
-        if (goalTriggered) { setIsCelebratingGoal(true); setTimeout(() => setIsCelebratingGoal(false), 3500); }
+        if (goalTriggered) {
+          const lastGoal = activeSide === 'HOME' ? newHomeGoals[newHomeGoals.length - 1] : newAwayGoals[newAwayGoals.length - 1];
+          const canTriggerVAR = !lastGoal?.isPenalty;
+          if (canTriggerVAR) {
+            varDataRef.current = { side: activeSide, scorerName: lastGoal?.playerName || '', minute: nextMinute };
+          }
+          setIsCelebratingGoal(true);
+          setTimeout(() => {
+            setIsCelebratingGoal(false);
+            const vd = varDataRef.current;
+            if (vd && Math.random() < 0.2) {
+              setActiveVAR({ ...vd, phase: 'CHECKING' });
+            }
+            varDataRef.current = null;
+          }, 3500);
+        }
 
         const momentumUpdate = MomentumService.computeMomentum(ctx, { ...prev, minute: nextMinute, momentum: prev.momentum, homeLineup: nextHomeLineup, awayLineup: nextAwayLineup }, immediateEventType, activeSide, localHomeFatigue, localAwayFatigue);
 
@@ -1185,7 +1248,7 @@ return {
       });
     }, tickInterval);
     return () => clearInterval(interval);
-  }, [matchState?.isPaused, matchState?.isPausedForEvent, matchState?.isFinished, matchState?.isHalfTime, matchState?.speed, isCelebratingGoal, ctx, env, userSide, isTacticsOpen, activePenalty, hasMandatorySub, setMatchState]);
+  }, [matchState?.isPaused, matchState?.isPausedForEvent, matchState?.isFinished, matchState?.isHalfTime, matchState?.speed, isCelebratingGoal, ctx, env, userSide, isTacticsOpen, activePenalty, activeVAR, hasMandatorySub, setMatchState]);
 
  const handleFinishMatch = () => {
     if (!matchState || !ctx) return;
@@ -1256,11 +1319,11 @@ return {
     updatedPlayers[ctx.homeClub.id] = applyFatigueDebtToSquad(updatedPlayers[ctx.homeClub.id], playedIdsHome);
     updatedPlayers[ctx.awayClub.id] = applyFatigueDebtToSquad(updatedPlayers[ctx.awayClub.id], playedIdsAway);
 
-    matchState.homeGoals.forEach(g => {
+    matchState.homeGoals.filter(g => !g.varDisallowed).forEach(g => {
        const pFound = ctx.homePlayers.find(px => px.lastName === g.playerName);
        if (pFound) updatedPlayers = PlayerStatsService.applyGoal(updatedPlayers, pFound.id, g.assistantId);
     });
-    matchState.awayGoals.forEach(g => {
+    matchState.awayGoals.filter(g => !g.varDisallowed).forEach(g => {
        const pFound = ctx.awayPlayers.find(px => px.lastName === g.playerName);
        if (pFound) updatedPlayers = PlayerStatsService.applyGoal(updatedPlayers, pFound.id, g.assistantId);
     });
@@ -1339,8 +1402,12 @@ return {
     const timeline: MatchSummaryEvent[] = [];
     let hCounter = 0, aCounter = 0;
     [...matchState.logs].filter(l => [MatchEventType.GOAL, MatchEventType.YELLOW_CARD, MatchEventType.RED_CARD, MatchEventType.PENALTY_SCORED, MatchEventType.INJURY_LIGHT, MatchEventType.INJURY_SEVERE].includes(l.type)).sort((a, b) => a.minute - b.minute).forEach(l => {
-      if (l.type === MatchEventType.GOAL || l.type === MatchEventType.PENALTY_SCORED) { if (l.teamSide === 'HOME') hCounter++; else aCounter++; }
-      timeline.push({ minute: l.minute, type: l.type, playerName: l.playerName || '?', assistantName: l.type === MatchEventType.GOAL ? matchState[l.teamSide === 'HOME' ? 'homeGoals' : 'awayGoals'].find(g => g.playerName === l.playerName && g.minute === l.minute)?.assistantName : undefined, teamSide: l.teamSide!, scoreAtMoment: (l.type === MatchEventType.GOAL || l.type === MatchEventType.PENALTY_SCORED) ? `${hCounter}-${aCounter}` : undefined });
+      const goalEntry = (l.type === MatchEventType.GOAL)
+        ? matchState[l.teamSide === 'HOME' ? 'homeGoals' : 'awayGoals'].find(g => g.playerName === l.playerName && g.minute === l.minute)
+        : undefined;
+      const isVarDisallowed = goalEntry?.varDisallowed === true;
+      if ((l.type === MatchEventType.GOAL || l.type === MatchEventType.PENALTY_SCORED) && !isVarDisallowed) { if (l.teamSide === 'HOME') hCounter++; else aCounter++; }
+      timeline.push({ minute: l.minute, type: l.type, playerName: l.playerName || '?', assistantName: l.type === MatchEventType.GOAL ? goalEntry?.assistantName : undefined, teamSide: l.teamSide!, varDisallowed: isVarDisallowed, scoreAtMoment: (l.type === MatchEventType.GOAL || l.type === MatchEventType.PENALTY_SCORED) && !isVarDisallowed ? `${hCounter}-${aCounter}` : undefined });
     });
 
    // --- WARSTWA KALIBRACJI STATYSTYK (STAGE 1 PRO) ---
@@ -1458,7 +1525,7 @@ const calculateUnitRatings = (teamPlayers: Player[], playedIds: Set<string>, sid
 
 const summary: MatchSummary = {
       matchId: ctx.fixture.id, userTeamId: userTeamId!, homeClub: ctx.homeClub, awayClub: ctx.awayClub, 
-      homeScore: matchState.homeScore, awayScore: matchState.awayScore, homeGoals: matchState.homeGoals, awayGoals: matchState.awayGoals,
+      homeScore: matchState.homeScore, awayScore: matchState.awayScore, homeGoals: matchState.homeGoals.filter(g => !g.varDisallowed), awayGoals: matchState.awayGoals.filter(g => !g.varDisallowed),
       attendance: attendance,
       homeStats: { ...matchState.liveStats.home, fouls: calibHomeFouls, shots: calibHomeShots, corners: calibHomeCorners, yellowCards: Object.keys(matchState.playerYellowCards).filter(id => ctx.homePlayers.some(p => p.id === id)).length, redCards: matchState.sentOffIds.filter(id => ctx.homePlayers.some(p => p.id === id)).length, possession: Math.round(50 + ((matchState.momentumSum / (matchState.momentumTicks || 1)) * 0.4)) },
       awayStats: { ...matchState.liveStats.away, fouls: calibAwayFouls, shots: calibAwayShots, corners: calibAwayCorners, yellowCards: Object.keys(matchState.playerYellowCards).filter(id => ctx.awayPlayers.some(p => p.id === id)).length, redCards: matchState.sentOffIds.filter(id => ctx.awayPlayers.some(p => p.id === id)).length, possession: 100 - Math.round(50 + ((matchState.momentumSum / (matchState.momentumTicks || 1)) * 0.4)) },
@@ -1545,8 +1612,11 @@ const summary: MatchSummary = {
           const nameToDisplay = g.playerName.includes('.') ? g.playerName : g.playerName; 
           // KONIEC WSTAWKI
           return (
-            <span key={`g-${i}`} className={`text-[9px] font-bold flex items-center gap-1 ${g.isMiss ? 'text-rose-500' : 'text-white'}`}>
-              {g.isMiss ? '❌' : '⚽'} {nameToDisplay} ({g.minute}'{g.isPenalty ? ' k.' : ''}{g.isMiss ? ' - pudło' : ''})
+            <span key={`g-${i}`} className={`text-[9px] font-bold flex items-center gap-1 ${g.isMiss ? 'text-rose-500' : g.varDisallowed ? 'text-slate-500' : 'text-white'}`}>
+              {g.isMiss ? '❌' : '⚽'}{' '}
+              {g.varDisallowed
+                ? <><s>{nameToDisplay} ({g.minute}'{g.isPenalty ? ' k.' : ''})</s> (VAR)</>
+                : `${nameToDisplay} (${g.minute}'${g.isPenalty ? ' k.' : ''}${g.isMiss ? ' - pudło' : ''})`}
             </span>
           );
         })}
@@ -1747,6 +1817,35 @@ const SquadList = ({ side, lineup, players, fatigue, injs, subsHistory }: { side
                  </div>
               </div>
            </div>
+        </div>
+      )}
+
+      {activeVAR && (
+        <div className="fixed inset-0 z-[600] bg-black/80 backdrop-blur-xl flex items-center justify-center animate-fade-in">
+          <div className="bg-slate-900/80 border border-white/10 rounded-[40px] p-12 flex flex-col items-center gap-6 shadow-[0_50px_100px_rgba(0,0,0,0.8)]">
+            {activeVAR.phase === 'CHECKING' && (
+              <>
+                <div className="text-7xl animate-bounce">📺</div>
+                <h2 className="text-5xl font-black italic text-white uppercase tracking-tighter">VAR</h2>
+                <p className="text-xl font-bold text-slate-300 uppercase tracking-widest text-center">Sędzia biegnie do monitora</p>
+                <div className="w-16 h-16 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mt-2" />
+              </>
+            )}
+            {activeVAR.phase === 'VERDICT' && activeVAR.verdict === 'GOAL' && (
+              <>
+                <div className="text-8xl">✅</div>
+                <h2 className="text-6xl font-black italic text-emerald-400 uppercase tracking-tighter drop-shadow-[0_0_40px_rgba(52,211,153,0.6)]">BRAMKA!</h2>
+                <p className="text-lg font-bold text-slate-300 uppercase tracking-widest">VAR: Gol uznany</p>
+              </>
+            )}
+            {activeVAR.phase === 'VERDICT' && activeVAR.verdict === 'NO_GOAL' && (
+              <>
+                <div className="text-8xl animate-bounce">🚫</div>
+                <h2 className="text-6xl font-black italic text-red-500 uppercase tracking-tighter drop-shadow-[0_0_40px_rgba(239,68,68,0.6)]">SPALONY!</h2>
+                <p className="text-lg font-bold text-slate-300 uppercase tracking-widest">VAR: Bramka nieuznana</p>
+              </>
+            )}
+          </div>
         </div>
       )}
 

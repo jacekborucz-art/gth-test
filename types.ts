@@ -485,6 +485,7 @@ export interface GoalTickerInfo {
   minute: number;
   isPenalty: boolean;
   isMiss?: boolean;
+  varDisallowed?: boolean;
   assistantName?: string;
   assistantId?: string;
 }
@@ -624,6 +625,7 @@ export interface MatchSummaryEvent {
   assistantName?: string;
   teamSide: 'HOME' | 'AWAY';
   scoreAtMoment?: string;
+  varDisallowed?: boolean;
 }
 
 export interface MatchSummary {

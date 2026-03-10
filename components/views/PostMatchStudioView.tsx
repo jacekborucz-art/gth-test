@@ -180,6 +180,16 @@ export const PostMatchStudioView: React.FC = () => {
 
           const formattedEventName = getEventFormattedName(e.playerName, side);
 
+          if (e.varDisallowed) {
+            return (
+              <span key={i} className="text-[10px] font-black uppercase italic text-slate-500 flex items-center gap-1">
+                {side === 'HOME'
+                  ? <><s>{formattedEventName} ({e.minute}')</s>&nbsp;⚽(VAR)</>
+                  : <>⚽(VAR)&nbsp;<s>{formattedEventName} ({e.minute}')</s></>}
+              </span>
+            );
+          }
+
           return (
             <span key={i} className={`text-[10px] font-black uppercase italic ${color} flex items-center gap-1`}>
               {side === 'HOME' ? `${formattedEventName} (${e.minute}') ${icon}` : `${icon} ${formattedEventName} (${e.minute}')`}
