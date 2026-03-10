@@ -184,7 +184,7 @@ const isPausedForSevereInjury = useMemo(() => {
         homeInjuries: {}, awayInjuries: {}, playerYellowCards: {},
         sentOffIds: [], homeRiskMode: {}, awayRiskMode: {}, homeUpgradeProb: {}, awayUpgradeProb: {},
         homeInjuryMin: {}, awayInjuryMin: {}, subsCountHome: 0, subsCountAway: 0,
-        homeSubsHistory: [], awaySubsHistory: [], lastAiActionMinute: 0,
+        homeSubsHistory: [], awaySubsHistory: [], lastAiActionMinute: 0, aiTacticLocked: false,
         logs: [{ id: 'init', minute: 0, text: "Oczekiwanie na pierwszy gwizdek...", type: MatchEventType.GENERIC }],
         liveStats: {
     home: { shots: 0, shotsOnTarget: 0, corners: 0, fouls: 0, offsides: 0 },
@@ -280,7 +280,7 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
             homeGoals: newHomeGoals,
             awayGoals: newAwayGoals,
             logs: [newLog, ...prev.logs],
-            momentum: MomentumService.computeMomentum(ctx, prev, finalResult, activePenalty.side)
+            momentum: MomentumService.computeMomentum(ctx, prev, finalResult, activePenalty.side, prev.homeFatigue, prev.awayFatigue)
           };
         });
 
@@ -450,6 +450,7 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
         let nextHomeSubsHistory = [...prev.homeSubsHistory];
         let nextAwaySubsHistory = [...prev.awaySubsHistory];
         let nextLastAiActionMinute = prev.lastAiActionMinute;
+        let nextAiTacticLocked = prev.aiTacticLocked ?? false;
         let nextHomeInjuries = { ...prev.homeInjuries };
         let nextAwayInjuries = { ...prev.awayInjuries };
         let nextHomeRiskMode = { ...prev.homeRiskMode };
@@ -499,6 +500,7 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
               else nextAwayLineup.tacticId = decision.newTacticId;
            }
            if (decision.lastAiActionMinute !== undefined) nextLastAiActionMinute = decision.lastAiActionMinute;
+           if (decision.aiTacticLocked) nextAiTacticLocked = true;
            if (decision.logs) {
               decision.logs.forEach(l => {
                  updatedLogs = [{ id: `AI_LOG_${nextMinute}_${Math.random()}`, minute: nextMinute, text: l, type: MatchEventType.GENERIC, teamSide: aiSide }, ...updatedLogs];
@@ -522,7 +524,65 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
            shotThreshold /= satietyFactor; // Im wyższy factor, tym niższy próg (trudniej o strzał)
         }
 
-        
+        // Krok 2: defenseBias rywala utrudnia dojście do strzału
+        // max kara: 6-3-1 (defenseBias=95) → -0.076 | min: 4-2-4 (defenseBias=10) → -0.008
+        const defendingLineup2 = activeSide === 'HOME' ? nextAwayLineup : nextHomeLineup;
+        const defendingTactic2 = TacticRepository.getById(defendingLineup2.tacticId);
+        const defBiasPenalty = (defendingTactic2.defenseBias / 100) * 0.08;
+
+        // Bonus za jakość napastnika (znormalizowany do polskiej ligi: zakres finishing 55-77)
+        const attackingTeamPlayers2 = activeSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers;
+        const attackingXI2 = (activeSide === 'HOME' ? nextHomeLineup.startingXI : nextAwayLineup.startingXI).filter(id => id !== null) as string[];
+        const topStriker = attackingTeamPlayers2
+          .filter(p => attackingXI2.includes(p.id) && p.position === PlayerPosition.FWD)
+          .sort((a, b) => b.attributes.finishing - a.attributes.finishing)[0];
+        const strikerBonus = topStriker
+          ? Math.max(0, (topStriker.attributes.finishing - 55) / (77 - 55)) * 0.012
+          : 0;
+
+        shotThreshold = Math.max(0.04, shotThreshold - defBiasPenalty + strikerBonus);
+
+        // Momentum bonus do shotThreshold - tylko gdy aktywna drużyna ma impet po swojej stronie
+        // max +0.015 przy momentum 100, przy momentum 50 → +0.0075
+        const hasMomentumAdvantage = (activeSide === 'HOME' && prev.momentum > 0) || (activeSide === 'AWAY' && prev.momentum < 0);
+        if (hasMomentumAdvantage) {
+          shotThreshold += (Math.abs(prev.momentum) / 100) * 0.015;
+        }
+
+        // Krok 3: pressingIntensity atakującej drużyny - wysoki pressing = więcej okazji
+        // pressing 20 (min) → +0.0016 | pressing 50 → +0.004 | pressing 90 (max) → +0.0072
+        const attackingTacticForPressing = TacticRepository.getById(
+          activeSide === 'HOME' ? nextHomeLineup.tacticId : nextAwayLineup.tacticId
+        );
+        shotThreshold += (attackingTacticForPressing.pressingIntensity / 100) * 0.008;
+
+        // POGODA: Deszcz karze technicznie słabszą drużynę (śliska piłka, niedokładne podania)
+        // Efekt jest WZGLĘDNY — liczy się różnica techniki między atakującymi a broniącymi
+        // precipitationChance > 40% = realny deszcz; efekt progresywny od różnicy techniki
+        if (env && env.weather.precipitationChance > 40) {
+          const getAvgTech = (players: Player[], xi: (string | null)[]): number => {
+            const ids = xi.filter((id): id is string => id !== null);
+            const active = players.filter(p => ids.includes(p.id));
+            if (active.length === 0) return 60;
+            return active.reduce((acc, p) => acc + p.attributes.technique, 0) / active.length;
+          };
+          const attackingPlayers = activeSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers;
+          const attackingXIW = activeSide === 'HOME' ? nextHomeLineup.startingXI : nextAwayLineup.startingXI;
+          const defendingPlayers = activeSide === 'HOME' ? ctx.awayPlayers : ctx.homePlayers;
+          const defendingXIW = activeSide === 'HOME' ? nextAwayLineup.startingXI : nextHomeLineup.startingXI;
+          const attTech = getAvgTech(attackingPlayers, attackingXIW);
+          const defTech = getAvgTech(defendingPlayers, defendingXIW);
+          const techGapW = defTech - attTech; // > 0 = atakujący słabsi technicznie
+          if (techGapW > 3) {
+            // Progresywna kara: mała różnica → mała kara, duża → większa
+            // gap 3-6 → -0.004 | gap 6-10 → -0.007 | gap 10+ → -0.010
+            const rainPenalty = techGapW > 10 ? 0.010 : techGapW > 6 ? 0.007 : 0.004;
+            // Skalowanie intensywności deszczu (40% = minimalna kara, 100% = pełna)
+            const rainIntensity = Math.min(1.0, (env.weather.precipitationChance - 40) / 60);
+            shotThreshold = Math.max(0.04, shotThreshold - rainPenalty * rainIntensity);
+          }
+        }
+
         let pauseForEvent = false;
         let newLog: MatchLogEntry | null = null;
         let goalTriggered = false;
@@ -611,7 +671,7 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
                     nextSentOffIds.push(pId);
                     if (activeSide === 'HOME') nextHomeLineup.startingXI = nextHomeLineup.startingXI.map(id => id === pId ? null : id);
                     else nextAwayLineup.startingXI = nextAwayLineup.startingXI.map(id => id === pId ? null : id);
-                    newLog = { id: `RED_${nextMinute}`, minute: nextMinute, text: `🟥 DRUGA ŻÓŁTA! ${player.lastName} schodzi!`, type: MatchEventType.RED_CARD, teamSide: activeSide, playerName: player.lastName };
+                    newLog = { id: `RED_${nextMinute}`, minute: nextMinute, text: `🟥 DRUGA ŻÓŁTA! ${player.lastName} wylatuje z boiska!`, type: MatchEventType.RED_CARD, teamSide: activeSide, playerName: player.lastName };
                     priorityAiTrigger = true;
                     immediateEventType = MatchEventType.RED_CARD;
                     if (activeSide === userSide) nextIsPaused = true;
@@ -650,12 +710,34 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
            if (!scorer) return prev;
            const assistant = GoalAttributionService.pickAssistant(team, xi as string[], scorer.id, false, () => seededRng(currentSeed, nextMinute, 720));
            
-           // TUTAJ ZASTĄP TEN KOD - Bezpieczne pobieranie bramkarza
+           // Bezpieczne pobieranie bramkarza
            const gk = oppTeam.find(p => p.id === oppXi[0]);
            const defs = oppTeam.filter(p => oppXi.slice(1, 6).includes(p.id));
-           
-           // Jeśli bramkarza nie ma w slocie (chwila po czerwonej kartce), strzał ma ogromną szansę na gola (savePower = 0)
-           const isGoal = GoalAttributionService.checkShotSuccess(scorer, gk as Player, defs, false, () => seededRng(currentSeed, nextMinute, 750));
+
+           // Live fatigue strzelca i bramkarza
+           const oppFatigueMap = activeSide === 'HOME' ? localAwayFatigue : localHomeFatigue;
+           const myFatigueMap  = activeSide === 'HOME' ? localHomeFatigue : localAwayFatigue;
+           const scorerLiveFatigue = myFatigueMap[scorer.id]  ?? 100;
+           const gkLiveFatigue     = gk ? (oppFatigueMap[gk.id] ?? 100) : 100;
+
+           // Position Fit Modifier - kara za grę poza naturalną pozycją
+           const computePosFitMod = (naturalPos: PlayerPosition, slotRole: PlayerPosition): number => {
+             if (naturalPos === slotRole) return 1.0;
+             const gkMismatch = naturalPos === PlayerPosition.GK || slotRole === PlayerPosition.GK;
+             if (gkMismatch) return 0.45;
+             if ((naturalPos === PlayerPosition.DEF && slotRole === PlayerPosition.FWD) ||
+                 (naturalPos === PlayerPosition.FWD && slotRole === PlayerPosition.DEF)) return 0.75;
+             return 0.88;
+           };
+           const attackingLineup = activeSide === 'HOME' ? nextHomeLineup : nextAwayLineup;
+           const attackingTactic = TacticRepository.getById(attackingLineup.tacticId);
+           const scorerSlotIdx   = attackingLineup.startingXI.indexOf(scorer.id);
+           const scorerSlotRole  = scorerSlotIdx !== -1 ? attackingTactic.slots[scorerSlotIdx].role : scorer.position;
+           const scorerFitMod    = computePosFitMod(scorer.position, scorerSlotRole);
+           const gkFitMod        = gk ? (gk.position === PlayerPosition.GK ? 1.0 : 0.45) : 1.0;
+
+           // Jeśli bramkarza nie ma w slocie (chwila po czerwonej kartce), strzał ma ogromną szansę na gola
+           const isGoal = GoalAttributionService.checkShotSuccess(scorer, gk as Player, defs, false, () => seededRng(currentSeed, nextMinute, 750), false, scorerLiveFatigue, gkLiveFatigue, scorerFitMod, gkFitMod, oppFatigueMap);
           
 
            if (isGoal) {
@@ -734,6 +816,48 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
        if (type === MatchEventType.CORNER) {
             if (activeSide === 'HOME') nextLiveStats.home.corners++;
             else nextLiveStats.away.corners++;
+
+            // Krok 5: Rzut rożny → szansa 25% na strzał głową (heading ma teraz znaczenie)
+            if (seededRng(currentSeed, nextMinute, 3300) < 0.25) {
+              const cornerTeam   = activeSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers;
+              const cornerXI     = (activeSide === 'HOME' ? nextHomeLineup.startingXI : nextAwayLineup.startingXI).filter(id => id !== null) as string[];
+              const cornerOppTeam = activeSide === 'HOME' ? ctx.awayPlayers : ctx.homePlayers;
+              const cornerOppXI   = (activeSide === 'HOME' ? nextAwayLineup.startingXI : nextHomeLineup.startingXI).filter(id => id !== null) as string[];
+              const headerScorer = GoalAttributionService.pickScorer(cornerTeam, cornerXI, true, () => seededRng(currentSeed, nextMinute, 3400));
+              if (headerScorer) {
+                const cornerGk   = cornerOppTeam.find(p => p.id === cornerOppXI[0]);
+                const cornerDefs = cornerOppTeam.filter(p => cornerOppXI.slice(1, 6).includes(p.id));
+                const hScorerFat = (activeSide === 'HOME' ? localHomeFatigue : localAwayFatigue)[headerScorer.id] ?? 100;
+                const hGkFat     = cornerGk ? ((activeSide === 'HOME' ? localAwayFatigue : localHomeFatigue)[cornerGk.id] ?? 100) : 100;
+                const hGkFitMod  = cornerGk ? (cornerGk.position === PlayerPosition.GK ? 1.0 : 0.45) : 1.0;
+                const cornerOppFatigue = activeSide === 'HOME' ? localAwayFatigue : localHomeFatigue;
+                const isHeaderGoal = GoalAttributionService.checkShotSuccess(
+                  headerScorer, cornerGk as Player, cornerDefs, true,
+                  () => seededRng(currentSeed, nextMinute, 3500),
+                  false, hScorerFat, hGkFat, 1.0, hGkFitMod, cornerOppFatigue
+                );
+                if (isHeaderGoal) {
+                  if (activeSide === 'HOME') {
+                    nextHomeScore++;
+                    newHomeGoals.push({ playerName: headerScorer.lastName, minute: nextMinute, isPenalty: false });
+                    nextLiveStats.home.shots++;
+                    nextLiveStats.home.shotsOnTarget++;
+                  } else {
+                    nextAwayScore++;
+                    newAwayGoals.push({ playerName: headerScorer.lastName, minute: nextMinute, isPenalty: false });
+                    nextLiveStats.away.shots++;
+                    nextLiveStats.away.shotsOnTarget++;
+                  }
+                  newLog = { id: `CORNER_GOAL_${nextMinute}`, minute: nextMinute, text: `⚽ Gol po rzucie rożnym! ${headerScorer.lastName} wbija głową!`, type: MatchEventType.GOAL, teamSide: activeSide, playerName: headerScorer.lastName };
+                  goalTriggered = true;
+                  priorityAiTrigger = true;
+                  immediateEventType = MatchEventType.GOAL;
+                } else {
+                  if (activeSide === 'HOME') nextLiveStats.home.shots++;
+                  else nextLiveStats.away.shots++;
+                }
+              }
+            }
           }
           if (type === MatchEventType.OFFSIDE) {
             if (activeSide === 'HOME') nextLiveStats.home.offsides++;
@@ -801,7 +925,7 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
 
         if (goalTriggered) { setIsCelebratingGoal(true); setTimeout(() => setIsCelebratingGoal(false), 3500); }
 
-        const momentumUpdate = MomentumService.computeMomentum(ctx, { ...prev, minute: nextMinute, momentum: prev.momentum, homeLineup: nextHomeLineup, awayLineup: nextAwayLineup }, immediateEventType, activeSide);
+        const momentumUpdate = MomentumService.computeMomentum(ctx, { ...prev, minute: nextMinute, momentum: prev.momentum, homeLineup: nextHomeLineup, awayLineup: nextAwayLineup }, immediateEventType, activeSide, localHomeFatigue, localAwayFatigue);
 
      if (priorityAiTrigger) {
            const decision = AiMatchDecisionService.makeDecisions({ ...prev, minute: nextMinute, homeScore: nextHomeScore, awayScore: nextAwayScore, sentOffIds: nextSentOffIds, homeLineup: nextHomeLineup, awayLineup: nextAwayLineup, homeInjuries: nextHomeInjuries, awayInjuries: nextAwayInjuries, homeFatigue: localHomeFatigue, awayFatigue: localAwayFatigue, lastAiActionMinute: nextLastAiActionMinute, homeSubsHistory: nextHomeSubsHistory, awaySubsHistory: nextAwaySubsHistory }, ctx, aiSide, true);
@@ -837,6 +961,7 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
               else nextAwayLineup.tacticId = decision.newTacticId;
            }
            if (decision.lastAiActionMinute !== undefined) nextLastAiActionMinute = decision.lastAiActionMinute;
+           if (decision.aiTacticLocked) nextAiTacticLocked = true;
            if (decision.logs) {
               decision.logs.forEach(l => {
                  updatedLogs = [{ id: `AI_LOG_${nextMinute}_${Math.random()}`, minute: nextMinute, text: l, type: MatchEventType.GENERIC, teamSide: aiSide }, ...updatedLogs];
@@ -884,7 +1009,8 @@ return {
            subsCountAway: nextSubsCountAway,
            homeSubsHistory: nextHomeSubsHistory, 
            awaySubsHistory: nextAwaySubsHistory,
-           lastAiActionMinute: nextLastAiActionMinute, 
+           lastAiActionMinute: nextLastAiActionMinute,
+           aiTacticLocked: nextAiTacticLocked,
            homeInjuries: nextHomeInjuries, 
            awayInjuries: nextAwayInjuries,
            homeRiskMode: nextHomeRiskMode, 

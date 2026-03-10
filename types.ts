@@ -498,6 +498,12 @@ export interface TacticalInstructions {
   intensity: InstructionIntensity;
   lastChangeMinute: number;
   expiryMinute: number; 
+  tempoExpiry: number;
+  mindsetExpiry: number;
+  intensityExpiry: number;
+  tempoCooldown: number;
+  mindsetCooldown: number;
+  intensityCooldown: number;
 }
 export interface SubstitutionRecord {
   playerOutId: string;

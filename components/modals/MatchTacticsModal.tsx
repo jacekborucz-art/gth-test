@@ -26,6 +26,7 @@ export const MatchTacticsModal: React.FC<MatchTacticsModalProps> = ({
   const [currentSubsCount, setCurrentSubsCount] = useState(subsCount);
   const [currentSubsHistory, setCurrentSubsHistory] = useState<SubstitutionRecord[]>(subsHistory);
   const [selectedSlot, setSelectedSlot] = useState<{ id: string | null, index?: number, loc: 'START' | 'BENCH' } | null>(null);
+  const [selectedExpectedRole, setSelectedExpectedRole] = useState<string | null>(null);
 
   const tactic = TacticRepository.getById(currentLineup.tacticId);
   const substitutedOffIds = new Set(currentSubsHistory.map(s => s.playerOutId));
@@ -42,10 +43,16 @@ export const MatchTacticsModal: React.FC<MatchTacticsModalProps> = ({
     return PlayerPresentationService.sortPlayers(pObjs).map(p => p.id);
   }, [currentLineup.bench, registeredPlayers]);
 
-  const handleSlotClick = (pId: string | null, loc: 'START' | 'BENCH', index?: number) => {
+  const handleSlotClick = (pId: string | null, loc: 'START' | 'BENCH', index?: number, expectedRole?: string) => {
     if (selectedSlot === null) {
       if (pId && substitutedOffIds.has(pId)) return;
       setSelectedSlot({ id: pId, index, loc });
+      if (loc === 'START') {
+        const slotPlayer = pId ? registeredPlayers.find(p => p.id === pId) : null;
+        setSelectedExpectedRole(slotPlayer ? slotPlayer.position : (expectedRole ?? null));
+      } else {
+        setSelectedExpectedRole(null);
+      }
     } else {
       const isSub = (selectedSlot.loc !== loc);
       
@@ -85,6 +92,7 @@ export const MatchTacticsModal: React.FC<MatchTacticsModalProps> = ({
       const newLineup = LineupService.swapPlayers(currentLineup, selectedSlot.id, pId, selectedSlot.index, index);
       setCurrentLineup(newLineup);
       setSelectedSlot(null);
+      setSelectedExpectedRole(null);
     }
   };
 
@@ -95,6 +103,8 @@ export const MatchTacticsModal: React.FC<MatchTacticsModalProps> = ({
     const f = p ? (fatigue[p.id] !== undefined ? Math.floor(fatigue[p.id]) : 100) : 0;
    // Blokujemy tylko jeśli próbujemy wejść kimś z ławki (loc !== 'START' u wybranego)
     const isRedBlocked = !p && loc === 'START' && currentOnPitchCount >= maxAllowedOnPitch && selectedSlot?.loc !== 'START';
+    // Podświetlenie zawodnika na ławce jeśli pasuje pozycją do zaznaczonego slotu w XI
+    const isPositionMatch = loc === 'BENCH' && selectedSlot?.loc === 'START' && selectedExpectedRole !== null && p !== null && !isOut && p.position === selectedExpectedRole;
     
     // Logic: Check position match
     const isNaturalPos = p && p.position === expectedRole;
@@ -105,10 +115,12 @@ export const MatchTacticsModal: React.FC<MatchTacticsModalProps> = ({
 
     return (
       <div 
-        onClick={() => !isRedBlocked && handleSlotClick(pId, loc, index)}
+        onClick={() => !isRedBlocked && handleSlotClick(pId, loc, index, expectedRole)}
         className={`relative w-full h-20 mb-3 rounded-[24px] transition-all duration-500 group overflow-visible
           ${isSelected 
             ? 'bg-blue-500/20 border-blue-400 shadow-[0_0_30px_rgba(59,130,246,0.3)] scale-[1.02] z-30' 
+            : isPositionMatch
+            ? 'bg-emerald-500/10 border-emerald-400/50 shadow-[0_0_20px_rgba(52,211,153,0.2)] scale-[1.01]'
             : 'bg-white/5 border-white/10 hover:bg-white/[0.08] hover:border-white/20'
           }
           ${isOut ? 'opacity-30 grayscale pointer-events-none' : 'cursor-pointer'}
@@ -118,6 +130,9 @@ export const MatchTacticsModal: React.FC<MatchTacticsModalProps> = ({
           border backdrop-blur-xl
         `}
       >
+        {isPositionMatch && (
+          <div className="absolute -right-1 -top-1 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center text-[9px] font-black text-white shadow-lg z-20 animate-pulse">✓</div>
+        )}
         {/* Wizjer Roli (Role Hub Prefix) */}
         <div className={`absolute -left-6 top-1/2 -translate-y-1/2 w-14 h-14 rounded-2xl flex flex-col items-center justify-center shadow-2xl border-2 z-20 transition-all duration-500
           ${loc === 'BENCH' ? 'hidden' : ''}
