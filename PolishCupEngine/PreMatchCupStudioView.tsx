@@ -168,7 +168,7 @@ export const PreMatchCupStudioView: React.FC = () => {
     <div className="h-screen w-full text-slate-100 flex flex-col p-6 animate-fade-in overflow-hidden relative selection:bg-rose-500">
 
       <div className="fixed inset-0 z-[-1] bg-slate-950 overflow-hidden pointer-events-none">
-        <div className="absolute inset-0 bg-[url('../../Graphic/themes/PucharPolski.png')] bg-cover bg-center scale-110 opacity-90 " />
+        <div className="absolute inset-0 bg-cover bg-center scale-110 opacity-90" style={{ backgroundImage: `url(${startMecz})` }} />
         <div className="absolute inset-0 bg-gradient-to-b from-slate-950/60 via-slate-950/80 to-slate-950" />
         <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] rounded-full bg-rose-600/10 blur-[150px] animate-pulse" />
       </div>
