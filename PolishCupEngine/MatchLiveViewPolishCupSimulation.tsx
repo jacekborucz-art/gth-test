@@ -576,10 +576,10 @@ useEffect(() => {
         let nextAwayInjuries = { ...prev.awayInjuries };
         let nextMomentum = prev.momentum;
         // === BALANS 2025 – stałe do łatwego tuningu ===
-        const RED_CARD_CHANCE        = 0.00072;  // ~0.10% na minutę (-20%)
+        const RED_CARD_CHANCE        = 0.00072;  // ~0.065 czerwonych/mecz
         const SEVERE_INJURY_CHANCE   = 0.0004;   // (-20%)
         const LIGHT_INJURY_CHANCE    = 0.0080;
-        const YELLOW_CARD_CHANCE     = 0.0132;   // (+10%)
+        const YELLOW_CARD_CHANCE     = 0.035;    // ~3.15 żółtych/mecz (normal)
         const BASE_EVENT_THRESHOLD   = 0.42;
         const BASE_GOAL_THRESHOLD    = 0.065;
         const MOMENTUM_INERTIA       = 0.88;
@@ -1093,25 +1093,43 @@ const aiGoalThresholdBoost = pRiskMod * (ctx.awayClub.reputation >= ctx.homeClub
           if (side === userSide) return prev.userInstructions.intensity;
           return currentAiShout?.intensity || 'NORMAL';
         };
+        // Funkcja pomocnicza do pobierania tempa danej strony
+        const getTempoAtSide = (side: 'HOME' | 'AWAY') => {
+          if (side === userSide) return prev.userInstructions.tempo;
+          return currentAiShout?.tempo || 'NORMAL';
+        };
 
     const sideIntensity = getIntensityAtSide(incidentSide);
         const otherIntensity = getIntensityAtSide(otherSide);
+        const sideTempo = getTempoAtSide(incidentSide);
+        const otherTempo = getTempoAtSide(otherSide);
 
-        // TUTAJ WSTAW TEN KOD - Rozdzielenie modyfikatorów
-        let cardModifier = 0;
-        let injuryModifier = 0.009;
+        // Osobne, niezależne losowania dla kartek i kontuzji
+        const cardRoll   = seededRng(currentSeed, nextMinute, 9991);
+        const injuryRoll = seededRng(currentSeed, nextMinute, 9993);
 
-        // Kartki zależą tylko od agresji strony rozpatrywanej (side)
-        if (sideIntensity === 'AGGRESSIVE') cardModifier = 0.010;
-        else if (sideIntensity === 'CAUTIOUS') cardModifier = -0.0011;
+        // Efektywne szanse na kartki – skalowane agresją strony która popełnia faul
+        let effectiveRedChance    = RED_CARD_CHANCE;    // ~0.065 czerwonych/mecz (normalnie)
+        let effectiveYellowChance = YELLOW_CARD_CHANCE; // ~3.15 żółtych/mecz (normalnie)
 
-        // Jeśli którakolwiek drużyna gra agresywnie - rośnie ryzyko kontuzji po obu stronach
-        if (sideIntensity === 'AGGRESSIVE' || otherIntensity === 'AGGRESSIVE') injuryModifier = 0.01022;
-        const baseRoll = seededRng(currentSeed, nextMinute, 9999);
-        
-        // Finalna logika sprawdzania (używamy różnych modyfikatorów w zależności od testu)
-        const rollForCards = baseRoll - cardModifier;
-        const rollForInjuries = baseRoll - injuryModifier;
+        if (sideIntensity === 'AGGRESSIVE') {
+            effectiveRedChance    *= 1.5;  // +50% czerwone przy agresji
+            effectiveYellowChance *= 2.0;  // +100% żółte przy agresji (główna kara)
+        } else if (sideIntensity === 'CAUTIOUS') {
+            effectiveRedChance    *= 0.5;
+            effectiveYellowChance *= 0.5;
+        }
+
+        // Modyfikator kontuzji zależny od intensywności gry OBU drużyn
+        let injuryIntensityMult = 1.0;
+        if (sideIntensity === 'AGGRESSIVE' || otherIntensity === 'AGGRESSIVE')
+            injuryIntensityMult = 1.5 + seededRng(currentSeed, nextMinute, 7777) * 0.5; // ×1.5–2.0 przy agresji
+        else if (sideIntensity === 'CAUTIOUS' && otherIntensity === 'CAUTIOUS')
+            injuryIntensityMult = 0.4; // obie ostrożne → −60% kontuzji
+        else if (sideIntensity === 'CAUTIOUS' || otherIntensity === 'CAUTIOUS')
+            injuryIntensityMult = 0.7; // jedna ostrożna → −30% kontuzji
+        // effectiveSevereBonus dodawany do progu kontuzji (por. formuła poniżej)
+        const effectiveSevereBonus = SEVERE_INJURY_CHANCE * Math.max(0, injuryIntensityMult - 1.0);
 
 
         // === COLLAPSE CHECK: skanuje WSZYSTKICH graczy obu drużyn każdą minutę ===
@@ -1184,11 +1202,34 @@ const aiGoalThresholdBoost = pRiskMod * (ctx.awayClub.reputation >= ctx.homeClub
 
 if (targetPlayer && !prev.isPausedForEvent) {
 
-    // Progresywna kara za niską kondycję: cond=50→×2.0, cond=30→×3.5, cond=10→×5.0
+    // Progresywna kara za zmęczenie — łączne ryzyko kontuzji (severe+light) na minutę:
+    //   cond >= 75%: baseline (~0.84%/min)
+    //   cond   74%: +3%  → ~3.84%/min
+    //   cond   50%: 60%/min (zakres 50-70%)
+    //   cond   35%: 92%/min (zakres 85-99%)
+    //   cond < 35%: ~98%/min (praktyczna gwarancja kontuzji w tej minucie)
     const targetCondition = fatigueMapForSide[targetPlayer.id] ?? targetPlayer.condition;
-    const fatigueInjuryMult = Math.max(1.0, (100 - targetCondition) / 25);
-    const effectiveSevereChance = SEVERE_INJURY_CHANCE * fatigueInjuryMult;
-    const effectiveLightChance  = LIGHT_INJURY_CHANCE  * fatigueInjuryMult;
+    const BASE_INJURY_TOTAL = SEVERE_INJURY_CHANCE + LIGHT_INJURY_CHANCE; // ~0.0084
+    let totalInjuryChance: number;
+    if (targetCondition >= 75) {
+        totalInjuryChance = BASE_INJURY_TOTAL;
+    } else if (targetCondition >= 50) {
+        const t = (75 - targetCondition) / 25;
+        totalInjuryChance = 0.03 + t * (0.60 - 0.03);
+    } else if (targetCondition >= 35) {
+        const t = (50 - targetCondition) / 15;
+        totalInjuryChance = 0.60 + t * (0.92 - 0.60);
+    } else {
+        totalInjuryChance = 0.98;
+    }
+    // Skalowanie przez intensywność gry (CAUTIOUS redukuje, AGGRESSIVE zwiększa)
+    totalInjuryChance = Math.min(0.98, totalInjuryChance * injuryIntensityMult);
+    // Proporcjonalny podział na groźną i lekką (zachowuje stosunek 1:20)
+    const sevRatio = SEVERE_INJURY_CHANCE / BASE_INJURY_TOTAL;
+    const effectiveSevereChance = totalInjuryChance * sevRatio;
+    // Przy szybkim tempie po stronie incydentu: +0.04 do lekkiej kontuzji (ogólny bonus, niezależny od minuty)
+    const tempoLightBonus = (sideTempo === 'FAST' || otherTempo === 'FAST') ? 0.04 : 0;
+    const effectiveLightChance  = Math.min(0.98, totalInjuryChance * (1 - sevRatio) + tempoLightBonus);
 
     // =====================================================================
     // Kolejność OD NAJPoważniejszego / najrzadszego do najczęstszego
@@ -1196,8 +1237,8 @@ if (targetPlayer && !prev.isPausedForEvent) {
     // Łączna szansa na zdarzenie ≈ 3.3% na minutę na gracza (realistycznie niska)
     // =====================================================================
 
-    // 1. CZERWONA KARTKA (0.25% szansy/min)
-    if (rollForCards < RED_CARD_CHANCE) {
+    // 1. CZERWONA KARTKA – niezależny roll
+    if (cardRoll < effectiveRedChance) {
         nextSentOffIds.push(targetPlayer.id);
         const dispName = `${targetPlayer.firstName.charAt(0)}. ${targetPlayer.lastName}`;
 
@@ -1219,8 +1260,8 @@ if (targetPlayer && !prev.isPausedForEvent) {
         if (incidentSide === userSide) nextIsPaused = true;
     }
 
-    // 2. GROŹNA KONTUZJA (0.4% szansy/min, skalowane zmęczeniem)
-    else if (rollForInjuries < RED_CARD_CHANCE + effectiveSevereChance) {
+    // 2. GROŹNA KONTUZJA (niezależny roll, skalowane zmęczeniem + agresją)
+    else if (injuryRoll < effectiveSevereChance + effectiveSevereBonus) {
         if (incidentSide === 'HOME') {
             nextHomeInjuries[targetPlayer.id] = InjurySeverity.SEVERE;
             nextHomeLineup.startingXI = nextHomeLineup.startingXI.map(id => id === targetPlayer.id ? null : id);
@@ -1241,8 +1282,8 @@ if (targetPlayer && !prev.isPausedForEvent) {
         nextIsPaused = true;  // zatrzymanie gry – najcięższe zdarzenie
     }
 
-    // 3. LEKKI URAZ (1.4% szansy/min, skalowane zmęczeniem)
-    else if (rollForInjuries < RED_CARD_CHANCE + effectiveSevereChance + effectiveLightChance) {
+    // 3. LEKKI URAZ (niezależny roll, skalowane zmęczeniem)
+    else if (injuryRoll < effectiveSevereChance + effectiveSevereBonus + effectiveLightChance) {
         if (incidentSide === 'HOME') {
             nextHomeInjuries[targetPlayer.id] = InjurySeverity.LIGHT;
         } else {
@@ -1269,8 +1310,8 @@ if (targetPlayer && !prev.isPausedForEvent) {
         }, ...updatedLogs];
     }
 
-    // 4. ŻÓŁTA KARTKA (1.25% szansy/min) – w tym druga żółta → czerwona
-    else if (rollForCards < RED_CARD_CHANCE + SEVERE_INJURY_CHANCE + LIGHT_INJURY_CHANCE + YELLOW_CARD_CHANCE) {  // < 0.0223
+    // 4. ŻÓŁTA KARTKA – niezależny roll (cardRoll >= effectiveRedChance dzięki else if)
+    else if (cardRoll < effectiveRedChance + effectiveYellowChance) {
         const yellows = (nextPlayerYellowCards[targetPlayer.id] || 0) + 1;
         nextPlayerYellowCards[targetPlayer.id] = yellows;
 
@@ -1635,6 +1676,69 @@ if (keeper.tier === 4 && Math.random() < 0.13) { // 13% szansy na super interwen
                 }, ...updatedLogs];
 
         }
+
+        // === CUP UPSET: Słabsza drużyna zawsze ma minimalną szansę na akcję bramkową ===
+        // Progresywne, oparte na SILE (nie reputacji):
+        //   gap=1.4 (T2-weak vs T1) → 5.7%/min akcji, 14% gola z akcji → ~16% gol/mecz
+        //   gap=1.8 (T3 vs T1)      → 4.4%/min akcji, 11% gola z akcji → ~16% gol/mecz
+        //   gap=2.7 (T4 vs T1)      → 3.0%/min akcji,  7% gola z akcji → ~7% gol/mecz
+        // T4 win chance vs T1 ≈ 1%: P(T4 ≥1 gol ≈ 7%) × P(T1 = 0 goli ≈ 14%) ≈ ~1%
+        if (eventSide === aiSide) {
+            const upsetAttPwr = getFormationPowerPro(
+                eventSide === 'HOME' ? nextHomeLineup.startingXI : nextAwayLineup.startingXI,
+                eventSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers,
+                eventSide === 'HOME' ? localHomeFatigue : localAwayFatigue,
+                ['attacking', 'finishing'],
+                [PlayerPosition.FWD, PlayerPosition.MID],
+                weatherMod
+            );
+            const upsetDefPwr = getFormationPowerPro(
+                eventSide === 'HOME' ? nextAwayLineup.startingXI : nextHomeLineup.startingXI,
+                eventSide === 'HOME' ? ctx.awayPlayers : ctx.homePlayers,
+                eventSide === 'HOME' ? localAwayFatigue : localHomeFatigue,
+                ['defending', 'positioning'],
+                [PlayerPosition.DEF, PlayerPosition.MID, PlayerPosition.GK],
+                weatherMod
+            );
+            const upsetPowerGap = upsetDefPwr / Math.max(1, upsetAttPwr);
+
+            if (upsetPowerGap > 1.4) {
+                const upsetActionChance = Math.min(0.06, 0.08 / upsetPowerGap);
+                if (seededRng(currentSeed, nextMinute, 9991) < upsetActionChance) {
+                    const upsetAttTeam = eventSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers;
+                    const upsetAttLineup = (eventSide === 'HOME' ? nextHomeLineup : nextAwayLineup).startingXI;
+                    const upsetScorer = GoalAttributionService.pickScorer(upsetAttTeam, upsetAttLineup as string[], false, () => seededRng(currentSeed, nextMinute, 9992));
+                    if (upsetScorer) {
+                        // Konwersja na gola spada wraz z rosnącą przewagą obrony
+                        const goalConvRate = Math.max(0.06, 0.20 / upsetPowerGap);
+                        if (seededRng(currentSeed, nextMinute, 9993) < goalConvRate) {
+                            eventType = MatchEventType.GOAL;
+                            const formattedName = `${upsetScorer.firstName.charAt(0)}. ${upsetScorer.lastName}`;
+                            currentScorerName = formattedName;
+                            const goalData = { playerName: formattedName, minute: nextMinute, isPenalty: false };
+                            if (eventSide === 'HOME') { hScore++; updatedHomeGoals.push(goalData); }
+                            else { aScore++; updatedAwayGoals.push(goalData); }
+                            (prev as any).lastGoalBoostMinute = nextMinute;
+                            (prev as any).postGoalSuppressionDuration = 4 + Math.floor(Math.random() * 5);
+                            (prev as any).postGoalPenaltyPct = 0.10 + (Math.random() * 0.10);
+                            const upsetGoalTexts = [
+                                `SENSACJA! ${upsetScorer.lastName} wykorzystuje błąd obrony i strzela!`,
+                                `Niespodziewane! ${upsetScorer.lastName} przebija się i pokonuje bramkarza!`,
+                                `Co za gol! ${upsetScorer.lastName} strzela nie do obronienia!`,
+                            ];
+                            updatedLogs = [{ id: `upset_${nextMinute}`, minute: nextMinute, text: `⚡ [${eventSide === 'HOME' ? ctx.homeClub.shortName : ctx.awayClub.shortName}] ${upsetGoalTexts[Math.floor(seededRng(currentSeed, nextMinute, 9994) * upsetGoalTexts.length)]}`, type: MatchEventType.GOAL, teamSide: eventSide, playerName: upsetScorer.lastName }, ...updatedLogs];
+                        } else {
+                            const upsetShotTexts = [
+                                `Niespodziewana akcja! ${upsetScorer.lastName} wychodzi sam na sam — bramkarz interweniuje!`,
+                                `Kontra! ${upsetScorer.lastName} strzela z ostrego kąta — bramkarz blokuje!`,
+                                `${upsetScorer.lastName} dośrodkowuje, strzał — udana obrona!`,
+                            ];
+                            updatedLogs = [{ id: `upset_shot_${nextMinute}`, minute: nextMinute, text: `⚡ [${eventSide === 'HOME' ? ctx.homeClub.shortName : ctx.awayClub.shortName}] ${upsetShotTexts[Math.floor(seededRng(currentSeed, nextMinute, 9995) * upsetShotTexts.length)]}`, type: MatchEventType.SHOT_ON_TARGET, teamSide: eventSide, playerName: upsetScorer.lastName }, ...updatedLogs];
+                        }
+                    }
+                }
+            }
+        }
           }
 
         // TUTAJ WSTAW TEN KOD (POPRAWKA SPOJNOŚCI RESETU)
@@ -1825,10 +1929,12 @@ if (activePlayerTempo === 'SLOW') {
                 if (currentTempo === 'SLOW') drain *= 0.78;
                 if (currentTempo === 'FAST') drain *= 1.25;
                 if (currentIntensity === 'AGGRESSIVE') drain *= 1.35;
+                if (currentIntensity === 'CAUTIOUS') drain *= 0.75; // ostrożna gra → mniej biegu → wolniejsze zmęczenie
                 
                 const isAiTeam = teamPlayers === (userSide === 'HOME' ? ctx.awayPlayers : ctx.homePlayers);
                 if (isAiTeam && currentAiShout) {
                    if (currentAiShout.intensity === 'AGGRESSIVE') drain *= 1.35;
+                   if (currentAiShout.intensity === 'CAUTIOUS') drain *= 0.75;
                    if (currentAiShout.tempo === 'FAST') drain *= 1.25;
                 }
 
