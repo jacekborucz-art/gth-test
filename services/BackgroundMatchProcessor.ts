@@ -1,5 +1,6 @@
 
 import { Fixture, Club, Player, MatchStatus, Lineup, CompetitionType, LeagueRoundResults, MatchResult, HealthStatus, InjurySeverity, Referee, WeatherSnapshot, Coach } from '../types';
+import { DebugLoggerService } from './DebugLoggerService';
 import { LeagueBackgroundMatchEngine } from './LeagueBackgroundMatchEngine';
 import { LeagueBackgroundMatchEngineV2 } from './LeagueBackgroundMatchEngine-ver2';
 import { RefereeService } from './RefereeService';
@@ -34,10 +35,21 @@ export const BackgroundMatchProcessor = {
     ratings: Record<string, number>;
   } => {
     
-    const dateStr = currentDate.toDateString();
-    const todayFixtures = fixtures.filter(f => f.date.toDateString() === dateStr && f.status === MatchStatus.SCHEDULED);
+       const dateStr = currentDate.toDateString();
+    const CL_COMPETITION_IDS = new Set([
+      CompetitionType.CL_R1Q, CompetitionType.CL_R1Q_RETURN,
+      CompetitionType.CL_R2Q, CompetitionType.CL_R2Q_RETURN,
+      CompetitionType.CL_GROUP_DRAW, CompetitionType.CL_GROUP_STAGE,
+      CompetitionType.CHAMPIONS_LEAGUE_DRAW,
+    ]);
+    const todayFixtures = fixtures.filter(f =>
+      f.date.toDateString() === dateStr &&
+      f.status === MatchStatus.SCHEDULED &&
+      !CL_COMPETITION_IDS.has(f.leagueId as CompetitionType)
+    );
     
-    // Nawet jeśli nie ma meczów dzisiaj, odświeżamy składy pod kątem zawieszeń (np. po wczorajszej kolejce)
+    // DEBUG
+    DebugLoggerService.log('BMP', `processLeagueEvent: ${dateStr} | SCHEDULED: ${todayFixtures.length} | TOTAL fixtures: ${fixtures.length}`, true);
     const newLineups = AiMatchPreparationService.prepareAllTeams(clubs, playersMap, lineups, userTeamId);
 if (todayFixtures.length === 0) {
       const contractUpdate = AiContractService.processClubsContracts(clubs, playersMap, currentDate, userTeamId);

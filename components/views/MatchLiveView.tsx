@@ -53,6 +53,7 @@ import { MATCH_COMMENTARY_DB } from '../../data/match_commentary_pl';
 import { KitSelectionService } from '../../services/KitSelectionService';
 import { InjuryEventGenerator } from '../../services/InjuryEventGenerator';
 import { MatchHistoryService } from '../../services/MatchHistoryService';
+import { DebugLoggerService } from '../../services/DebugLoggerService';
 import { InjuryUpgradeService } from '../../services/InjuryUpgradeService';
 import { AttendanceService } from '../../services/AttendanceService';
 import { FinanceService } from '@/services/FinanceService';
@@ -75,12 +76,13 @@ export const MatchLiveView = () => {
   const { 
     navigateTo, userTeamId, clubs, fixtures, players, 
     lineups, currentDate, setLastMatchSummary, applySimulationResult, viewPlayerDetails,seasonNumber, coaches,
+    roundResults,
     activeMatchState: matchState, setActiveMatchState: setMatchState
   } = useGame();
   
   const [isTacticsOpen, setIsTacticsOpen] = useState(false);
   const [isCelebratingGoal, setIsCelebratingGoal] = useState(false);
-  
+    const [showCommentHistory, setShowCommentHistory] = useState(false);
   const [activePenalty, setActivePenalty] = useState<{
     side: 'HOME' | 'AWAY',
     kicker: Player,
@@ -90,6 +92,28 @@ export const MatchLiveView = () => {
   } | null>(null);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
+
+  const getContrastColor = (hexColor: string): string => {
+    const hex = hexColor.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.5 ? '#000000' : '#FFFFFF';
+  };
+
+  const hexToRgba = (hex: string, alpha: number) => {
+    try {
+      const h = (hex || '#000000').replace('#', '');
+      const r = parseInt(h.substring(0, 2), 16);
+      const g = parseInt(h.substring(2, 4), 16);
+      const b = parseInt(h.substring(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    } catch (e) {
+      return `rgba(15, 23, 42, ${alpha})`;
+    }
+  };
+
 
   const ctx = useMemo(() => {
     const fixture = fixtures.find(f => 
@@ -160,7 +184,7 @@ const isPausedForSevereInjury = useMemo(() => {
         homeInjuries: {}, awayInjuries: {}, playerYellowCards: {},
         sentOffIds: [], homeRiskMode: {}, awayRiskMode: {}, homeUpgradeProb: {}, awayUpgradeProb: {},
         homeInjuryMin: {}, awayInjuryMin: {}, subsCountHome: 0, subsCountAway: 0,
-        homeSubsHistory: [], awaySubsHistory: [], lastAiActionMinute: 0,
+        homeSubsHistory: [], awaySubsHistory: [], lastAiActionMinute: 0, aiTacticLocked: false,
         logs: [{ id: 'init', minute: 0, text: "Oczekiwanie na pierwszy gwizdek...", type: MatchEventType.GENERIC }],
         liveStats: {
     home: { shots: 0, shotsOnTarget: 0, corners: 0, fouls: 0, offsides: 0 },
@@ -172,14 +196,20 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
         sessionSeed,
       ////// DO ZAIMPLEMENTOWANIA PRZYCISKI TEMPO NASTAWIENIE I INTESNYWNOSC ...
         tacticalImpact: 1.0,
-        userInstructions: {
+       userInstructions: {
           tempo: 'NORMAL',
           mindset: 'NEUTRAL',
           intensity: 'NORMAL',
-          lastChangeMinute: -5,
-          
-        }
-      });
+          expiryMinute: -1,
+         lastChangeMinute: -5,},
+          playedPlayerIds: [],
+        aiActiveShout: null,
+        lastGoalBoostMinute: -1,
+        activeTacticalBoost: null,
+        tacticalBoostExpiry: -1
+        
+        
+     });
     }
   }, [ctx, lineups, matchState, setMatchState]);
 
@@ -196,7 +226,7 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
     if (!matchState) return "";
     if (hasMandatorySub) return "WYMAGANA ZMIANA";
     if (matchState.isHalfTime) return "II POŁOWA";
-    return matchState.isPaused ? "START" : "STOP";
+    return matchState.isPaused ? "START" : "PAUZA";
   };
 
   useEffect(() => {
@@ -250,7 +280,7 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
             homeGoals: newHomeGoals,
             awayGoals: newAwayGoals,
             logs: [newLog, ...prev.logs],
-            momentum: MomentumService.computeMomentum(ctx, prev, finalResult, activePenalty.side)
+            momentum: MomentumService.computeMomentum(ctx, prev, finalResult, activePenalty.side, prev.homeFatigue, prev.awayFatigue)
           };
         });
 
@@ -290,7 +320,10 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
     if (!matchState || matchState.isPaused || matchState.isPausedForEvent || 
         matchState.isFinished || matchState.isHalfTime || isTacticsOpen || isCelebratingGoal || !env || activePenalty) return;
 
-    const tickInterval = matchState.speed === 5 ? 120 : 1000; 
+    const tickInterval = matchState.speed === 5 ? 120 
+  : matchState.speed === 3.5 ? 200 
+  : matchState.speed === 2.5 ? 400 
+  : 1000;
     
     const interval = setInterval(() => {
       setMatchState(prev => {
@@ -312,7 +345,7 @@ const nextMomentumSum = prev.momentumSum + prev.momentum;
         
         if (nextMinute > limit) {
            const isFT = prev.period === 2;
-           const logText = isFT ? "Koniec meczu!" : "Przerwa w grze.";
+           const logText = isFT ? "Sędzia kończy mecz!" : "Przerwa w grze.";
            const newLog: MatchLogEntry = { id: `PERIOD_END_${prev.period}`, minute: prev.minute, text: logText, type: MatchEventType.GENERIC };
            
 
@@ -417,6 +450,7 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
         let nextHomeSubsHistory = [...prev.homeSubsHistory];
         let nextAwaySubsHistory = [...prev.awaySubsHistory];
         let nextLastAiActionMinute = prev.lastAiActionMinute;
+        let nextAiTacticLocked = prev.aiTacticLocked ?? false;
         let nextHomeInjuries = { ...prev.homeInjuries };
         let nextAwayInjuries = { ...prev.awayInjuries };
         let nextHomeRiskMode = { ...prev.homeRiskMode };
@@ -429,7 +463,9 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
         let localHomeFatigue = { ...prev.homeFatigue };
         let localAwayFatigue = { ...prev.awayFatigue };
 
-        const engineComment = MatchEngineService.generateCommentary(nextMinute, currentSeed, ctx.homeClub.shortName, ctx.awayClub.shortName);
+        
+       const engineComment = MatchEngineService.generateCommentary(nextMinute, currentSeed, ctx.homeClub.name, ctx.awayClub.name);
+        
         if (engineComment) updatedLogs = [engineComment, ...updatedLogs];
 
         const aiSide: 'HOME' | 'AWAY' = userSide === 'HOME' ? 'AWAY' : 'HOME';
@@ -464,9 +500,10 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
               else nextAwayLineup.tacticId = decision.newTacticId;
            }
            if (decision.lastAiActionMinute !== undefined) nextLastAiActionMinute = decision.lastAiActionMinute;
+           if (decision.aiTacticLocked) nextAiTacticLocked = true;
            if (decision.logs) {
               decision.logs.forEach(l => {
-                 updatedLogs = [{ id: `AI_LOG_${nextMinute}_${Math.random()}`, minute: nextMinute, text: l, type: MatchEventType.GENERIC }, ...updatedLogs];
+                 updatedLogs = [{ id: `AI_LOG_${nextMinute}_${Math.random()}`, minute: nextMinute, text: l, type: MatchEventType.GENERIC, teamSide: aiSide }, ...updatedLogs];
               });
            }
         }
@@ -487,7 +524,65 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
            shotThreshold /= satietyFactor; // Im wyższy factor, tym niższy próg (trudniej o strzał)
         }
 
-        
+        // Krok 2: defenseBias rywala utrudnia dojście do strzału
+        // max kara: 6-3-1 (defenseBias=95) → -0.076 | min: 4-2-4 (defenseBias=10) → -0.008
+        const defendingLineup2 = activeSide === 'HOME' ? nextAwayLineup : nextHomeLineup;
+        const defendingTactic2 = TacticRepository.getById(defendingLineup2.tacticId);
+        const defBiasPenalty = (defendingTactic2.defenseBias / 100) * 0.08;
+
+        // Bonus za jakość napastnika (znormalizowany do polskiej ligi: zakres finishing 55-77)
+        const attackingTeamPlayers2 = activeSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers;
+        const attackingXI2 = (activeSide === 'HOME' ? nextHomeLineup.startingXI : nextAwayLineup.startingXI).filter(id => id !== null) as string[];
+        const topStriker = attackingTeamPlayers2
+          .filter(p => attackingXI2.includes(p.id) && p.position === PlayerPosition.FWD)
+          .sort((a, b) => b.attributes.finishing - a.attributes.finishing)[0];
+        const strikerBonus = topStriker
+          ? Math.max(0, (topStriker.attributes.finishing - 55) / (77 - 55)) * 0.012
+          : 0;
+
+        shotThreshold = Math.max(0.04, shotThreshold - defBiasPenalty + strikerBonus);
+
+        // Momentum bonus do shotThreshold - tylko gdy aktywna drużyna ma impet po swojej stronie
+        // max +0.015 przy momentum 100, przy momentum 50 → +0.0075
+        const hasMomentumAdvantage = (activeSide === 'HOME' && prev.momentum > 0) || (activeSide === 'AWAY' && prev.momentum < 0);
+        if (hasMomentumAdvantage) {
+          shotThreshold += (Math.abs(prev.momentum) / 100) * 0.015;
+        }
+
+        // Krok 3: pressingIntensity atakującej drużyny - wysoki pressing = więcej okazji
+        // pressing 20 (min) → +0.0016 | pressing 50 → +0.004 | pressing 90 (max) → +0.0072
+        const attackingTacticForPressing = TacticRepository.getById(
+          activeSide === 'HOME' ? nextHomeLineup.tacticId : nextAwayLineup.tacticId
+        );
+        shotThreshold += (attackingTacticForPressing.pressingIntensity / 100) * 0.008;
+
+        // POGODA: Deszcz karze technicznie słabszą drużynę (śliska piłka, niedokładne podania)
+        // Efekt jest WZGLĘDNY — liczy się różnica techniki między atakującymi a broniącymi
+        // precipitationChance > 40% = realny deszcz; efekt progresywny od różnicy techniki
+        if (env && env.weather.precipitationChance > 40) {
+          const getAvgTech = (players: Player[], xi: (string | null)[]): number => {
+            const ids = xi.filter((id): id is string => id !== null);
+            const active = players.filter(p => ids.includes(p.id));
+            if (active.length === 0) return 60;
+            return active.reduce((acc, p) => acc + p.attributes.technique, 0) / active.length;
+          };
+          const attackingPlayers = activeSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers;
+          const attackingXIW = activeSide === 'HOME' ? nextHomeLineup.startingXI : nextAwayLineup.startingXI;
+          const defendingPlayers = activeSide === 'HOME' ? ctx.awayPlayers : ctx.homePlayers;
+          const defendingXIW = activeSide === 'HOME' ? nextAwayLineup.startingXI : nextHomeLineup.startingXI;
+          const attTech = getAvgTech(attackingPlayers, attackingXIW);
+          const defTech = getAvgTech(defendingPlayers, defendingXIW);
+          const techGapW = defTech - attTech; // > 0 = atakujący słabsi technicznie
+          if (techGapW > 3) {
+            // Progresywna kara: mała różnica → mała kara, duża → większa
+            // gap 3-6 → -0.004 | gap 6-10 → -0.007 | gap 10+ → -0.010
+            const rainPenalty = techGapW > 10 ? 0.010 : techGapW > 6 ? 0.007 : 0.004;
+            // Skalowanie intensywności deszczu (40% = minimalna kara, 100% = pełna)
+            const rainIntensity = Math.min(1.0, (env.weather.precipitationChance - 40) / 60);
+            shotThreshold = Math.max(0.04, shotThreshold - rainPenalty * rainIntensity);
+          }
+        }
+
         let pauseForEvent = false;
         let newLog: MatchLogEntry | null = null;
         let goalTriggered = false;
@@ -576,7 +671,7 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
                     nextSentOffIds.push(pId);
                     if (activeSide === 'HOME') nextHomeLineup.startingXI = nextHomeLineup.startingXI.map(id => id === pId ? null : id);
                     else nextAwayLineup.startingXI = nextAwayLineup.startingXI.map(id => id === pId ? null : id);
-                    newLog = { id: `RED_${nextMinute}`, minute: nextMinute, text: `🟥 DRUGA ŻÓŁTA! ${player.lastName} schodzi!`, type: MatchEventType.RED_CARD, teamSide: activeSide, playerName: player.lastName };
+                    newLog = { id: `RED_${nextMinute}`, minute: nextMinute, text: `🟥 DRUGA ŻÓŁTA! ${player.lastName} wylatuje z boiska!`, type: MatchEventType.RED_CARD, teamSide: activeSide, playerName: player.lastName };
                     priorityAiTrigger = true;
                     immediateEventType = MatchEventType.RED_CARD;
                     if (activeSide === userSide) nextIsPaused = true;
@@ -597,7 +692,7 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
                  else nextLiveStats.away.fouls++;
                  
                  immediateEventType = MatchEventType.FOUL;
-                 newLog = { id: `FOUL_${nextMinute}`, minute: nextMinute, text: `${getCommentary(MatchEventType.FOUL)} (${player.lastName})`, type: MatchEventType.FOUL, teamSide: activeSide };
+                 newLog = { id: `FOUL_${nextMinute}`, minute: nextMinute, text: `${getCommentary(MatchEventType.FOUL, player.lastName)}`, type: MatchEventType.FOUL, teamSide: activeSide };
               }
 
               if (newLog) {
@@ -612,14 +707,37 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
            const oppTeam = activeSide === 'HOME' ? ctx.awayPlayers : ctx.homePlayers;
            const oppXi = activeSide === 'HOME' ? nextAwayLineup.startingXI : nextHomeLineup.startingXI;
       const scorer = GoalAttributionService.pickScorer(team, xi as string[], false, () => seededRng(currentSeed, nextMinute, 700));
+           if (!scorer) return prev;
            const assistant = GoalAttributionService.pickAssistant(team, xi as string[], scorer.id, false, () => seededRng(currentSeed, nextMinute, 720));
            
-           // TUTAJ ZASTĄP TEN KOD - Bezpieczne pobieranie bramkarza
+           // Bezpieczne pobieranie bramkarza
            const gk = oppTeam.find(p => p.id === oppXi[0]);
            const defs = oppTeam.filter(p => oppXi.slice(1, 6).includes(p.id));
-           
-           // Jeśli bramkarza nie ma w slocie (chwila po czerwonej kartce), strzał ma ogromną szansę na gola (savePower = 0)
-           const isGoal = GoalAttributionService.checkShotSuccess(scorer, gk as Player, defs, false, () => seededRng(currentSeed, nextMinute, 750));
+
+           // Live fatigue strzelca i bramkarza
+           const oppFatigueMap = activeSide === 'HOME' ? localAwayFatigue : localHomeFatigue;
+           const myFatigueMap  = activeSide === 'HOME' ? localHomeFatigue : localAwayFatigue;
+           const scorerLiveFatigue = myFatigueMap[scorer.id]  ?? 100;
+           const gkLiveFatigue     = gk ? (oppFatigueMap[gk.id] ?? 100) : 100;
+
+           // Position Fit Modifier - kara za grę poza naturalną pozycją
+           const computePosFitMod = (naturalPos: PlayerPosition, slotRole: PlayerPosition): number => {
+             if (naturalPos === slotRole) return 1.0;
+             const gkMismatch = naturalPos === PlayerPosition.GK || slotRole === PlayerPosition.GK;
+             if (gkMismatch) return 0.45;
+             if ((naturalPos === PlayerPosition.DEF && slotRole === PlayerPosition.FWD) ||
+                 (naturalPos === PlayerPosition.FWD && slotRole === PlayerPosition.DEF)) return 0.75;
+             return 0.88;
+           };
+           const attackingLineup = activeSide === 'HOME' ? nextHomeLineup : nextAwayLineup;
+           const attackingTactic = TacticRepository.getById(attackingLineup.tacticId);
+           const scorerSlotIdx   = attackingLineup.startingXI.indexOf(scorer.id);
+           const scorerSlotRole  = scorerSlotIdx !== -1 ? attackingTactic.slots[scorerSlotIdx].role : scorer.position;
+           const scorerFitMod    = computePosFitMod(scorer.position, scorerSlotRole);
+           const gkFitMod        = gk ? (gk.position === PlayerPosition.GK ? 1.0 : 0.45) : 1.0;
+
+           // Jeśli bramkarza nie ma w slocie (chwila po czerwonej kartce), strzał ma ogromną szansę na gola
+           const isGoal = GoalAttributionService.checkShotSuccess(scorer, gk as Player, defs, false, () => seededRng(currentSeed, nextMinute, 750), false, scorerLiveFatigue, gkLiveFatigue, scorerFitMod, gkFitMod, oppFatigueMap);
           
 
            if (isGoal) {
@@ -643,14 +761,18 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
                 nextLiveStats.away.shots++;
                 nextLiveStats.away.shotsOnTarget++;
               }
-              newLog = { id: `GOAL_${nextMinute}`, minute: nextMinute, text: `⚽ ${getCommentary(MatchEventType.GOAL, scorer.lastName)}${assistant ? ` (Asysta: ${assistant.lastName})` : ''}`, type: MatchEventType.GOAL, teamSide: activeSide, playerName: scorer.lastName };
+              newLog = { id: `GOAL_${nextMinute}`, minute: nextMinute, text: `⚽ ${getCommentary(MatchEventType.GOAL, scorer.lastName)}${assistant ? ` (Asystował: ${assistant.lastName})` : ''}`, type: MatchEventType.GOAL, teamSide: activeSide, playerName: scorer.lastName };
               goalTriggered = true; priorityAiTrigger = true; immediateEventType = MatchEventType.GOAL;
-           } else {
+          } else {
               const failRng = seededRng(currentSeed, nextMinute, 780);
               let failType = MatchEventType.SHOT_ON_TARGET;
-              if (failRng < 0.1) failType = MatchEventType.SHOT_POST;
-              else if (failRng < 0.2) failType = MatchEventType.SHOT_BAR;
-              else if (failRng > 0.8) failType = MatchEventType.SHOT;
+              if (failRng < 0.08) failType = MatchEventType.SHOT_POST;
+              else if (failRng < 0.16) failType = MatchEventType.SHOT_BAR;
+              else if (failRng < 0.26) failType = MatchEventType.ONE_ON_ONE_SAVE;
+              else if (failRng < 0.36) failType = MatchEventType.ONE_ON_ONE_MISS;
+              else if (failRng < 0.44) failType = MatchEventType.SAVE;
+              else if (failRng < 0.54) failType = MatchEventType.WINGER_STOPPED;
+              else if (failRng > 0.85) failType = MatchEventType.SHOT;
 
               // Inkrementacja strzałów niecelnych i celnych (bez gola)
               if (activeSide === 'HOME') {
@@ -673,28 +795,81 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
         }
         else if (rngEvent < 0.25) {
           const flavorRng = seededRng(currentSeed, nextMinute, 900);
-          let type = MatchEventType.MIDFIELD_CONTROL;
-          if (flavorRng < 0.08) type = MatchEventType.CORNER;
-          else if (flavorRng < 0.15) type = MatchEventType.THROW_IN;
-          else if (flavorRng < 0.25) type = MatchEventType.DRIBBLING;
-          else if (flavorRng < 0.35) type = MatchEventType.MISPLACED_PASS;
-          else if (flavorRng < 0.42) type = MatchEventType.BLUNDER;
-          else if (flavorRng < 0.55) type = MatchEventType.PLAY_LEFT;
-          else if (flavorRng < 0.68) type = MatchEventType.PLAY_RIGHT;
-          else if (flavorRng < 0.8) type = MatchEventType.STUMBLE;
-          else if (flavorRng < 0.86) type = MatchEventType.OFFSIDE; // Dodano przypisanie spalonego
-          else if (flavorRng < 0.9) type = MatchEventType.PRESSURE;
+         let type = MatchEventType.MIDFIELD_CONTROL;
+          if (flavorRng < 0.06) type = MatchEventType.CORNER;
+          else if (flavorRng < 0.12) type = MatchEventType.THROW_IN;
+          else if (flavorRng < 0.19) type = MatchEventType.DRIBBLING;
+          else if (flavorRng < 0.26) type = MatchEventType.MISPLACED_PASS;
+          else if (flavorRng < 0.32) type = MatchEventType.BLUNDER;
+          else if (flavorRng < 0.40) type = MatchEventType.PLAY_LEFT;
+          else if (flavorRng < 0.48) type = MatchEventType.PLAY_RIGHT;
+          else if (flavorRng < 0.54) type = MatchEventType.PLAY_BACK;
+          else if (flavorRng < 0.60) type = MatchEventType.PLAY_SIDE;
+          else if (flavorRng < 0.66) type = MatchEventType.STUMBLE;
+          else if (flavorRng < 0.72) type = MatchEventType.OFFSIDE;
+          else if (flavorRng < 0.78) type = MatchEventType.PRESSURE;
+          else if (flavorRng < 0.84) type = MatchEventType.FREE_KICK;
+          else if (flavorRng < 0.90) type = MatchEventType.FOUL_PUSH;
+          else if (flavorRng < 0.95) type = MatchEventType.FOUL_JERSEY;
+          else type = MatchEventType.GK_LONG_THROW;
 
        if (type === MatchEventType.CORNER) {
             if (activeSide === 'HOME') nextLiveStats.home.corners++;
             else nextLiveStats.away.corners++;
+
+            // Krok 5: Rzut rożny → szansa 25% na strzał głową (heading ma teraz znaczenie)
+            if (seededRng(currentSeed, nextMinute, 3300) < 0.25) {
+              const cornerTeam   = activeSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers;
+              const cornerXI     = (activeSide === 'HOME' ? nextHomeLineup.startingXI : nextAwayLineup.startingXI).filter(id => id !== null) as string[];
+              const cornerOppTeam = activeSide === 'HOME' ? ctx.awayPlayers : ctx.homePlayers;
+              const cornerOppXI   = (activeSide === 'HOME' ? nextAwayLineup.startingXI : nextHomeLineup.startingXI).filter(id => id !== null) as string[];
+              const headerScorer = GoalAttributionService.pickScorer(cornerTeam, cornerXI, true, () => seededRng(currentSeed, nextMinute, 3400));
+              if (headerScorer) {
+                const cornerGk   = cornerOppTeam.find(p => p.id === cornerOppXI[0]);
+                const cornerDefs = cornerOppTeam.filter(p => cornerOppXI.slice(1, 6).includes(p.id));
+                const hScorerFat = (activeSide === 'HOME' ? localHomeFatigue : localAwayFatigue)[headerScorer.id] ?? 100;
+                const hGkFat     = cornerGk ? ((activeSide === 'HOME' ? localAwayFatigue : localHomeFatigue)[cornerGk.id] ?? 100) : 100;
+                const hGkFitMod  = cornerGk ? (cornerGk.position === PlayerPosition.GK ? 1.0 : 0.45) : 1.0;
+                const cornerOppFatigue = activeSide === 'HOME' ? localAwayFatigue : localHomeFatigue;
+                const isHeaderGoal = GoalAttributionService.checkShotSuccess(
+                  headerScorer, cornerGk as Player, cornerDefs, true,
+                  () => seededRng(currentSeed, nextMinute, 3500),
+                  false, hScorerFat, hGkFat, 1.0, hGkFitMod, cornerOppFatigue
+                );
+                if (isHeaderGoal) {
+                  if (activeSide === 'HOME') {
+                    nextHomeScore++;
+                    newHomeGoals.push({ playerName: headerScorer.lastName, minute: nextMinute, isPenalty: false });
+                    nextLiveStats.home.shots++;
+                    nextLiveStats.home.shotsOnTarget++;
+                  } else {
+                    nextAwayScore++;
+                    newAwayGoals.push({ playerName: headerScorer.lastName, minute: nextMinute, isPenalty: false });
+                    nextLiveStats.away.shots++;
+                    nextLiveStats.away.shotsOnTarget++;
+                  }
+                  newLog = { id: `CORNER_GOAL_${nextMinute}`, minute: nextMinute, text: `⚽ Gol po rzucie rożnym! ${headerScorer.lastName} wbija głową!`, type: MatchEventType.GOAL, teamSide: activeSide, playerName: headerScorer.lastName };
+                  goalTriggered = true;
+                  priorityAiTrigger = true;
+                  immediateEventType = MatchEventType.GOAL;
+                } else {
+                  if (activeSide === 'HOME') nextLiveStats.home.shots++;
+                  else nextLiveStats.away.shots++;
+                }
+              }
+            }
           }
           if (type === MatchEventType.OFFSIDE) {
             if (activeSide === 'HOME') nextLiveStats.home.offsides++;
             else nextLiveStats.away.offsides++;
           }
           immediateEventType = type;
-          newLog = { id: `FLAVOR_${nextMinute}`, minute: nextMinute, text: `[${activeSide === 'HOME' ? ctx.homeClub.shortName : ctx.awayClub.shortName}] ${getCommentary(type)}`, type: type, teamSide: activeSide };
+          const flavorTeam = activeSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers;
+          const flavorLineup = activeSide === 'HOME' ? nextHomeLineup.startingXI : nextAwayLineup.startingXI;
+          const flavorActiveIds = flavorLineup.filter(id => id !== null);
+          const flavorPlayerId = flavorActiveIds[Math.floor(seededRng(currentSeed, nextMinute, 777) * flavorActiveIds.length)];
+          const flavorPlayer = flavorTeam.find(p => p.id === flavorPlayerId);
+          newLog = { id: `FLAVOR_${nextMinute}`, minute: nextMinute, text: getCommentary(type, flavorPlayer?.lastName || ''), type: type, teamSide: activeSide };
         }
 
         const accidentalInjuryRoll = seededRng(currentSeed, nextMinute, 4500);
@@ -750,7 +925,7 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
 
         if (goalTriggered) { setIsCelebratingGoal(true); setTimeout(() => setIsCelebratingGoal(false), 3500); }
 
-        const momentumUpdate = MomentumService.computeMomentum(ctx, { ...prev, minute: nextMinute, momentum: prev.momentum, homeLineup: nextHomeLineup, awayLineup: nextAwayLineup }, immediateEventType, activeSide);
+        const momentumUpdate = MomentumService.computeMomentum(ctx, { ...prev, minute: nextMinute, momentum: prev.momentum, homeLineup: nextHomeLineup, awayLineup: nextAwayLineup }, immediateEventType, activeSide, localHomeFatigue, localAwayFatigue);
 
      if (priorityAiTrigger) {
            const decision = AiMatchDecisionService.makeDecisions({ ...prev, minute: nextMinute, homeScore: nextHomeScore, awayScore: nextAwayScore, sentOffIds: nextSentOffIds, homeLineup: nextHomeLineup, awayLineup: nextAwayLineup, homeInjuries: nextHomeInjuries, awayInjuries: nextAwayInjuries, homeFatigue: localHomeFatigue, awayFatigue: localAwayFatigue, lastAiActionMinute: nextLastAiActionMinute, homeSubsHistory: nextHomeSubsHistory, awaySubsHistory: nextAwaySubsHistory }, ctx, aiSide, true);
@@ -786,9 +961,10 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
               else nextAwayLineup.tacticId = decision.newTacticId;
            }
            if (decision.lastAiActionMinute !== undefined) nextLastAiActionMinute = decision.lastAiActionMinute;
+           if (decision.aiTacticLocked) nextAiTacticLocked = true;
            if (decision.logs) {
               decision.logs.forEach(l => {
-                 updatedLogs = [{ id: `AI_LOG_${nextMinute}_${Math.random()}`, minute: nextMinute, text: l, type: MatchEventType.GENERIC }, ...updatedLogs];
+                 updatedLogs = [{ id: `AI_LOG_${nextMinute}_${Math.random()}`, minute: nextMinute, text: l, type: MatchEventType.GENERIC, teamSide: aiSide }, ...updatedLogs];
               });
            }
 
@@ -833,7 +1009,8 @@ return {
            subsCountAway: nextSubsCountAway,
            homeSubsHistory: nextHomeSubsHistory, 
            awaySubsHistory: nextAwaySubsHistory,
-           lastAiActionMinute: nextLastAiActionMinute, 
+           lastAiActionMinute: nextLastAiActionMinute,
+           aiTacticLocked: nextAiTacticLocked,
            homeInjuries: nextHomeInjuries, 
            awayInjuries: nextAwayInjuries,
            homeRiskMode: nextHomeRiskMode, 
@@ -862,7 +1039,31 @@ return {
     
     // Obliczamy frekwencję (korzystając z pogody zdefiniowanej w env.weather)
     const attendance = AttendanceService.calculate(ctx.homeClub, homeRank, env!.weather);
-    const finalRoundResults = simResult.roundResults || { dateKey: currentDate.toDateString(), league1Results: [], league2Results: [], league3Results: [] };
+
+    // NAPRAWKA DUPLIKACJI WYNIKÓW:
+    // Priorytet: wyniki z advanceDay (jeśli już uruchomił się dla daty meczu)
+    // Fallback: wyniki z processLeagueEvent powyżej (jeśli advanceDay jeszcze nie uruchomił się)
+    const fixtureDateKey = ctx.fixture.date.toDateString();
+    const bgFromAdvanceDay = roundResults[fixtureDateKey];
+    const bgFromProcessor = simResult.roundResults;
+    const bgSource = bgFromAdvanceDay || bgFromProcessor || { dateKey: currentDate.toDateString(), league1Results: [], league2Results: [], league3Results: [] };
+
+    DebugLoggerService.separator('handleFinishMatch');
+    DebugLoggerService.log('FINISH', `fixtureDateKey=${fixtureDateKey} | currentDate=${currentDate.toDateString()}`);
+    DebugLoggerService.log('FINISH', `bgFromAdvanceDay=${bgFromAdvanceDay?.league1Results?.length ?? 'null'} | bgFromProcessor=${bgFromProcessor?.league1Results?.length ?? 'null'} | bgSource=${bgSource.league1Results.length}`);
+    DebugLoggerService.log('FINISH', `roundResults keys in state: ${Object.keys(roundResults).join(', ')}`);
+    Object.entries(roundResults).forEach(([k, v]) => {
+      DebugLoggerService.log('FINISH', `  key=${k} L1=${v.league1Results.length} L2=${v.league2Results.length} L3=${v.league3Results.length}`);
+      v.league1Results.forEach((r, i) => DebugLoggerService.log('FINISH', `    L1[${i}]: ${r.homeTeamName} vs ${r.awayTeamName} ${r.homeScore}:${r.awayScore}`));
+    });
+
+    // Wyniki przechowywane pod currentDate.toDateString() - to samo co czyta PostMatchStudioView
+    const finalRoundResults = {
+      dateKey: currentDate.toDateString(),
+      league1Results: [...bgSource.league1Results],
+      league2Results: [...bgSource.league2Results],
+      league3Results: [...bgSource.league3Results],
+    };
     const userMatchResult: MatchResult = { homeTeamName: ctx.homeClub.name, awayTeamName: ctx.awayClub.name, homeScore: matchState.homeScore, awayScore: matchState.awayScore, homeColors: ctx.homeClub.colorsHex, awayColors: ctx.awayClub.colorsHex };
     const lid = ctx.fixture.leagueId;
     if (lid === 'L_PL_1') finalRoundResults.league1Results.push(userMatchResult);
@@ -1165,7 +1366,7 @@ const summary: MatchSummary = {
     });
 
     setLastMatchSummary(summary); 
-    setMatchState(null); 
+    setMatchState(null);
     navigateTo(ViewState.MATCH_POST);
   };
 
@@ -1197,7 +1398,10 @@ const summary: MatchSummary = {
   };
 
 const SquadList = ({ side, lineup, players, fatigue, injs, subsHistory }: { side: 'HOME' | 'AWAY', lineup: (string | null)[], players: Player[], fatigue: Record<string, number>, injs: Record<string, InjurySeverity>, subsHistory: SubstitutionRecord[] }) => (
-    <div className="w-96 shrink-0 bg-slate-900/45 backdrop-blur-3xl p-4 rounded-[40px] border border-white/10 flex flex-col gap-2 overflow-hidden h-full shadow-2xl relative">
+    <div
+      className="w-96 shrink-0  p-4 rounded-[40px] border border-white/10 flex flex-col gap-2 overflow-hidden h-full shadow-2xl relative"
+      style={{ backgroundColor: kitColors ? (side === 'HOME' ? hexToRgba(kitColors.home.primary, 0.12) : hexToRgba(kitColors.away.primary, 0.12)) : 'rgba(15,23,42,0.20)'}}
+    >
       <div className="absolute top-0 left-0 w-full h-1" style={{ backgroundColor: side === 'HOME' ? kitColors!.home.primary : kitColors!.away.primary }} />
        <h4 className="text-[10px] font-black text-slate-100 uppercase tracking-[0.3em] mb-4 text-center">
         {TacticRepository.getById(side === 'HOME' ? matchState!.homeLineup.tacticId : matchState!.awayLineup.tacticId).name}
@@ -1303,7 +1507,7 @@ const SquadList = ({ side, lineup, players, fatigue, injs, subsHistory }: { side
   />
 
   {/* przyciemnienie żeby UI było czytelne */}
-  <div className="absolute inset-0 bg-slate-950/65" />
+  <div className="absolute inset-0 bg-slate-950/85" />
 
   {/* opcjonalnie delikatny grid */}
   <div
@@ -1387,7 +1591,7 @@ const SquadList = ({ side, lineup, players, fatigue, injs, subsHistory }: { side
       )}
 
 
-      <header className="flex items-stretch justify-between h-36 bg-slate-900/60 backdrop-blur-3xl rounded-[45px] overflow-hidden shadow-[0_30px_100px_rgba(0,0,0,0.5)] border border-white/10 shrink-0">
+      <header className="flex items-stretch justify-between h-36 bg-slate-900/60 rounded-[45px] overflow-hidden shadow-[0_30px_100px_rgba(0,0,0,0.5)] border border-white/10 shrink-0">
          <div className="flex-1 flex flex-col justify-center px-12 relative overflow-hidden group">
             <div className="absolute inset-0 opacity-10" style={{ backgroundColor: kitColors.home.primary }} />
 
@@ -1401,15 +1605,16 @@ const SquadList = ({ side, lineup, players, fatigue, injs, subsHistory }: { side
             </div>
             <div className="relative z-10 pl-24">{renderTicker('HOME')}</div>
          </div>
-         <div className="w-72 bg-black/60 flex flex-col items-center justify-center border-x border-white/5 relative overflow-hidden">
+        <div className="w-72 flex flex-col items-center justify-center border-x border-white/5 relative overflow-hidden"
+              style={{ background: `linear-gradient(180deg, ${kitColors.home.primary}33 0%, #0a0a0f 35%, #0a0a0f 65%, ${kitColors.away.primary}33 100%)` }}>
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent" />
             {isCelebratingGoal ? (
                <div className="absolute inset-0 flex flex-col items-center justify-center bg-yellow-500/20 animate-pulse-gold">
-                  <span className="text-6xl font-black italic text-yellow-400 tracking-tighter drop-shadow-[0_0_30px_rgba(250,204,21,1)]">GOL!</span>
+                  <span className="text-8xl font-black italic text-yellow-400 tracking-tighter drop-shadow-[0_0_30px_rgba(250,204,21,1)]">GOL!</span>
                </div>
             ) : (
-               <><div className="text-6xl font-black text-white tracking-tighter leading-none mb-1">{matchState.homeScore} <span className="text-slate-700 mx-1">:</span> {matchState.awayScore}</div>
-                  <div className="flex items-center gap-3"><div className="text-xl font-mono font-bold text-emerald-400 animate-pulse bg-emerald-500/10 px-3 py-0.5 rounded-lg border border-emerald-500/20">{matchState.isFinished ? 'KONIEC' : `${matchState.minute}'`}</div>
+               <><div className="text-8xl font-black text-white tracking-tighter leading-none mb-1">{matchState.homeScore} <span className="text-slate-700 mx-1">&nbsp;&nbsp;&nbsp;</span> {matchState.awayScore}</div>
+                  <div className="flex items-center gap-3"><div className="text-xl font-mono font-bold text-emerald-400 animate-pulse bg-emerald-500/10 px-3 py-0.5 rounded-lg border border-emerald-500/20">{matchState.isFinished ? 'WYNIK KOŃCOWY' : `${matchState.minute}'`}</div>
                   {matchState.addedTime > 0 && !matchState.isFinished && <div className="text-[11px] font-black text-red-500 font-mono">+{matchState.addedTime}</div>}</div></>
             )}
          </div>
@@ -1462,7 +1667,7 @@ const SquadList = ({ side, lineup, players, fatigue, injs, subsHistory }: { side
     className="w-full max-w-[475px] h-[420px] mx-auto bg-emerald-950/20 border-4 border-emerald-900/30 relative overflow-hidden"
     style={{
       aspectRatio: '105 / 68',
-      transform: 'perspective(950px) rotateX(24deg) scale(1.12)',
+      transform: 'perspective(950px) rotateX(24deg) scale(1.19)',
       transformOrigin: 'top center',
       transformStyle: 'preserve-3d'
     }}
@@ -1641,53 +1846,9 @@ const SquadList = ({ side, lineup, players, fatigue, injs, subsHistory }: { side
       {/* Dolna bramka */}
       <div className="absolute bottom-4 left-1/2 w-[10%] h-1 bg-white/70 -translate-x-1/2" />
 
- {/* Etykieta Przerwy */}
-    {matchState.isHalfTime && (
-      <div className="absolute inset-0 z-[60] flex items-center justify-center pointer-events-none" style={{ transform: 'rotateX(-24deg)' }}>
-         <div className="bg-slate-950/90 backdrop-blur-2xl border-y-4 border-rose-500 px-16 py-8 rounded-[40px] shadow-[0_0_100px_rgba(225,29,72,0.4)] animate-pulse">
-            <div className="flex flex-col items-center">
-               <span className="text-[10px] font-black text-rose-500 tracking-[0.5em] mb-2">PIŁKARZE SCHODZĄ DO SZATNI</span>
-               <span className="text-6xl font-black italic text-white uppercase tracking-[0.2em] drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">PRZERWA</span>
-            </div>
-         </div>
-      </div>
-    )}
 
-    {/* Etykieta Kontuzji */}
-    {isPausedForSevereInjury && (
-      <div className="absolute inset-0 z-[70] flex items-center justify-center pointer-events-none" style={{ transform: 'rotateX(-24deg)' }}>
-        <div className="bg-slate-950/90 backdrop-blur-2xl border-y-4 border-red-600 px-16 py-8 rounded-[40px] shadow-[0_0_100px_rgba(220,38,38,0.5)] animate-pulse">
-          <div className="flex flex-col items-center gap-4">
-            <div className="text-7xl filter drop-shadow-[0_0_20px_rgba(239,68,68,0.8)]">➕</div>
-            <div className="text-center">
-              <span className="text-[10px] font-black text-red-500 tracking-[0.5em] mb-2 uppercase block">Zawodnik leży na murawie</span>
-              <h2 className="text-4xl font-black italic text-white uppercase tracking-tight drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">
-                PRZERWA MEDYCZNA<br/>
-                <span className="text-2xl text-red-500 font-bold not-italic">KONTUZJA</span>
-              </h2>
-            </div>
-          </div>
-        </div>
-      </div>
-    )}
 
-    {/* Etykieta Końca Meczu */}
-    {matchState.isFinished && (
-      <div className="absolute inset-0 z-[60] flex items-center justify-center pointer-events-none" style={{ transform: 'rotateX(-24deg)' }}>
-        <div className="bg-slate-950/90 backdrop-blur-2xl border-y-4 border-emerald-500 px-20 py-12 rounded-[50px] shadow-[0_0_120px_rgba(34,197,94,0.6)] animate-pulse">
-          <div className="flex flex-col items-center gap-4">
-            <span className="text-sm font-black text-emerald-400 tracking-[0.6em] uppercase">KONIEC MECZU</span>
-            <span className="text-7xl font-black italic text-white uppercase tracking-wider drop-shadow-[0_0_30px_rgba(255,255,255,0.5)]">
-              
-            </span>
-            <span className="text-4xl font-bold text-emerald-300 mt-2">
-              {matchState.homeScore} – {matchState.awayScore}
-            </span>
-          </div>
-        </div>
-      </div>
-    )}
-
+   
     </div>
 
 
@@ -1787,7 +1948,7 @@ const hasScored = matchState.homeGoals.some(g => g.playerName === p.lastName && 
   </div>
 </div>
               
-                              <div className="fixed bottom-48 left-1/2 -translate-x-1/2 z-40 flex gap-3 justify-center py-3 px-8 bg-white/5 border border-white/10 backdrop-blur-3xl rounded-[28px] shadow-2xl max-w-5xl">
+                              <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[1100] flex gap-3 justify-center py-3 px-8 bg-white/5 border border-white/10 rounded-[28px] shadow-2xl max-w-5xl">
   {matchState.isFinished ? (
     <button
       onClick={handleFinishMatch}
@@ -1820,35 +1981,62 @@ const hasScored = matchState.homeGoals.some(g => g.playerName === p.lastName && 
         ⚙ TAKTYKA
       </button>
 
-      <button
-        onClick={() => setMatchState(s => s ? {...s, speed: s.speed === 5 ? 1 : 5} : s)}
-        className="min-w-[90px] py-3 px-5 rounded-xl bg-white/5 border border-white/10 text-slate-400 font-black italic uppercase tracking-widest text-xs hover:bg-white/10 hover:text-white transition-all hover:scale-105 active:scale-95 shadow-xl flex items-center justify-center gap-2"
-      >
-        {matchState.speed === 5 ? '⏩ x5' : '⏪ x1'}
-      </button>
+<button
+  onClick={() => setMatchState(s => {
+    if (!s) return s;
+    const next = s.speed === 1 ? 2.5 : s.speed === 2.5 ? 3.5 : s.speed === 3.5 ? 5 : 1;
+    return { ...s, speed: next };
+  })}
+  className="min-w-[90px] py-3 px-5 rounded-xl bg-white/5 border border-white/10 text-slate-400 font-black italic uppercase tracking-widest text-xs hover:bg-white/10 hover:text-white transition-all hover:scale-105 active:scale-95 shadow-xl flex items-center justify-center gap-2"
+>
+  {matchState.speed === 5 ? '⏩ x5' : matchState.speed === 3.5 ? '⏩ x3.5' : matchState.speed === 2.5 ? '⏩ x2.5' : '⏪ x1'}
+</button>
     </>
   )}
+
+
+
+      <button
+        onClick={() => setShowCommentHistory(!showCommentHistory)}
+        className="min-w-[60px] py-3 px-6 rounded-xl bg-white/5 border border-white/10 text-slate-300 font-black italic uppercase tracking-widest text-xs hover:bg-white/10 hover:text-white transition-all hover:scale-105 active:scale-95 shadow-xl flex items-center justify-center gap-2"
+      >
+        PRZEBIEG MECZU
+      </button>
 </div>
+
+
         </div>
 
        <SquadList side="AWAY" lineup={matchState.awayLineup.startingXI} players={ctx.awayPlayers} fatigue={matchState.awayFatigue} injs={matchState.awayInjuries} subsHistory={matchState.awaySubsHistory} />
       </div>
 
-                       <footer className="h-40 bg-slate-900/45 backdrop-blur-3xl rounded-[32px] border border-white/10 flex flex-col shrink-0 overflow-hidden shadow-2xl relative max-w-5xl mx-auto mb-32 flex-shrink-0">
-         <div className="bg-black/40 px-8 py-2 border-b border-white/5 flex justify-between items-center relative z-10">
-            <div className="flex items-center gap-3"><div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" /><span className="text-[10px] font-black text-white uppercase tracking-[0.4em]">KOMENTARZ NA ŻYWO</span></div>
-            <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">SĘDZIA: {env.ref.lastName.toUpperCase()}</span>
-         </div>
-         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-2 relative z-10">
-            {matchState.logs.map(log => (
-              <div key={log.id} className="text-12px font-medium p-3 rounded-2xl bg-white/5 border-l-4 border-blue-500 animate-slide-up flex gap-5 group hover:bg-white/10 transition-colors">
-                <span className="text-blue-400 font-black shrink-0 w-8 font-mono">{log.minute}'</span>
-                <span className="text-slate-200 leading-relaxed italic">"{log.text}"</span>
-              </div>
-            ))}
-            <div ref={logsEndRef} />
-         </div>
-      </footer>
+    {matchState.logs.length > 0 && (
+          
+      <div className="fixed left-1/2 -translate-x-1/2 z-30 flex justify-center" style={{ bottom: 'calc(15rem - 55px)' }}>
+        {(() => {
+          const latestLog = matchState.logs[0];
+          const isHome = latestLog.teamSide === 'HOME';
+          const bgColor = isHome ? kitColors!.home.primary : kitColors!.away.primary;
+          const textColor = getContrastColor(bgColor);
+          
+          return (
+            <div 
+              className="px-8 py-5 rounded-[11px] shadow-2xl border border-white/20 backdrop-blur-md max-w-7xl"
+              style={{ backgroundColor: bgColor }}
+            >
+              <span 
+                className="text-lg font-black italic uppercase tracking-tight"
+                style={{ color: textColor }}
+              >
+                {latestLog.text}
+              </span>
+            </div>
+          );
+        })()}
+      </div>
+    )}
+
+
 
       <MatchTacticsModal isOpen={isTacticsOpen} onClose={handleTacticsClose} club={userSide === 'HOME' ? ctx.homeClub : ctx.awayClub} lineup={userSide === 'HOME' ? matchState.homeLineup : matchState.awayLineup} players={userSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers} fatigue={userSide === 'HOME' ? matchState.homeFatigue : matchState.awayFatigue} subsCount={userSide === 'HOME' ? matchState.subsCountHome : matchState.subsCountAway} subsHistory={userSide === 'HOME' ? matchState.homeSubsHistory : matchState.awaySubsHistory} minute={matchState.minute} sentOffIds={matchState.sentOffIds} />
       <style>{`
@@ -1867,6 +2055,78 @@ const hasScored = matchState.homeGoals.some(g => g.playerName === p.lastName && 
         .animate-slide-up { animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
       `}</style>
     </div>
+
+      {showCommentHistory && (
+      <div className="fixed right-0 top-0 bottom-0 w-96 bg-slate-900/95 border-l border-white/10  z-[400] overflow-y-auto p-4 space-y-2">
+        <div className="sticky top-0 bg-slate-900/95 p-2 mb-4 flex justify-between items-center">
+          <h3 className="text-white font-black uppercase tracking-widest text-sm">HISTORIA</h3>
+          <button 
+            onClick={() => setShowCommentHistory(false)} 
+            className="text-white text-2xl hover:text-slate-300 transition-colors"
+          >
+            ×
+          </button>
+        </div>
+        
+        {matchState.logs.map((log) => (
+          <div key={log.id} className="p-3 rounded-xl bg-white/5 border border-white/10 text-xs text-slate-200 hover:bg-white/10 transition-colors">
+            <span className="font-black text-blue-400">{log.minute}'</span> - {log.text}
+          </div>
+        ))}
+      </div>
+    )}
+
+///Etykieta przerwa w meczu ///
+     {matchState.isHalfTime && !isTacticsOpen && (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none" style={{ transform: 'rotateX(-24deg)' }}>
+        <div className="bg-slate-950/90 backdrop-blur-2xl border-y-4 border-rose-500 px-16 py-8 rounded-[40px] shadow-[0_0_100px_rgba(225,29,72,0.4)] animate-pulse">
+          <div className="flex flex-col items-center">
+            <span className="text-[10px] font-black text-rose-500 tracking-[0.5em] mb-2">PIŁKARZE SCHODZĄ DO SZATNI</span>
+            <span className="text-6xl font-black italic text-white uppercase tracking-[0.2em] drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">PRZERWA</span>
+          </div>
+        </div>
+      </div>
+    )}
+
+ {/* Etykieta Kontuzji */}
+    {isPausedForSevereInjury && !isTacticsOpen &&(
+      <div className="absolute inset-0 z-[999] flex items-center justify-center pointer-events-none" style={{ transform: 'rotateX(-24deg)' }}>
+        <div className="bg-slate-950/90 backdrop-blur-2xl border-y-4 border-red-600 px-16 py-8 rounded-[40px] shadow-[0_0_100px_rgba(220,38,38,0.5)] animate-pulse">
+          <div className="flex flex-col items-center gap-4">
+            <div className="text-7xl filter drop-shadow-[0_0_20px_rgba(239,68,68,0.8)]">➕</div>
+            <div className="text-center">
+              <span className="text-[10px] font-black text-red-500 tracking-[0.5em] mb-2 uppercase block">Zawodnik leży na murawie</span>
+              <h2 className="text-4xl font-black italic text-white uppercase tracking-tight drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">
+                PRZERWA MEDYCZNA<br/>
+                <span className="text-2xl text-red-500 font-bold not-italic">KONTUZJA</span>
+              </h2>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Etykieta Końca Meczu */}
+    {matchState.isFinished && (
+      <div className="absolute inset-0 z-[999] flex items-center justify-center pointer-events-none" style={{ transform: 'rotateX(-24deg)' }}>
+        <div className="bg-slate-950/90 backdrop-blur-2xl border-y-4 border-emerald-500 px-20 py-12 rounded-[50px] shadow-[0_0_120px_rgba(34,197,94,0.6)] animate-pulse">
+          <div className="flex flex-col items-center gap-4">
+            <span className="text-sm font-black text-emerald-400 tracking-[0.6em] uppercase"> KONIEC SPOTKANIA</span>
+            <span className="text-7xl font-black italic text-white uppercase tracking-wider drop-shadow-[0_0_30px_rgba(255,255,255,0.5)]">
+              
+            </span>
+            <span className="text-4xl font-bold text-emerald-300 mt-2">
+              TRANSMISJA ZAKOŃCZONA
+            </span>
+          </div>
+        </div>
+      </div>
+    )}
+
+
+
+
   </div>
   );
 };
+   

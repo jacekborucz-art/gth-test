@@ -1,6 +1,7 @@
 
 import { League, LeagueLevel, Club, Player, PlayerPosition, Region, HealthStatus, PlayerAttributes, NationalTeam } from './types';
 import { RAW_PL_CLUBS, generateClubId } from './resources/static_db/clubs/pl_clubs';
+import { RAW_CHAMPIONS_LEAGUE_CLUBS, generateEuropeanClubId } from './resources/static_db/clubs/ChampionsLeagueTeams';
 // TUTAJ WSTAW IMPORTY DRUŻYN NARODOWYCH
 import { FinanceService } from './services/FinanceService';
 import { NATIONAL_TEAMS_EUROPE } from './resources/static_db/NationalTeams/NationalTeamsEurope';
@@ -11,6 +12,21 @@ import { NATIONAL_TEAMS_CONMEBOL } from './resources/static_db/NationalTeams/Nat
 import { NATIONAL_TEAMS_OFC } from './resources/static_db/NationalTeams/NationalTeamsOFC';
 
 // (Dodaj resztę importów analogicznie...)
+
+export const REGION_NATIONALITY_LABEL: Record<Region, string> = {
+  [Region.POLAND]:      'Polak',
+  [Region.GERMANY]:     'Niemiec',
+  [Region.SPAIN]:       'Hiszpan',
+  [Region.ENGLAND]:     'Anglik',
+  [Region.ITALY]:       'Włoch',
+  [Region.FRANCE]:      'Francuz',
+  [Region.BALKANS]:     'Bałkanin',
+  [Region.CZ_SK]:       'Czech/Słowak',
+  [Region.SSA]:         'Afrykańczyk',
+  [Region.IBERIA]:      'Iberyijczyk',
+  [Region.SCANDINAVIA]: 'Skandynaw',
+  [Region.EX_USSR]:     'Wschodnioeuropejczyk',
+};
 
 const generateNTId = (name: string) => `NT_${name.toUpperCase().replace(/\s+/g, '_')}`;
 
@@ -36,7 +52,7 @@ export const STATIC_NATIONAL_TEAMS: NationalTeam[] = [
 // This file acts as the JSON loader stub mentioned in the requirements.
 // ---------------------------------------------------------------------------
 
-export const START_DATE = new Date('2025-07-9');
+export const START_DATE = new Date('2025-07-01');
 
 // 1. League Definitions
 export const STATIC_LEAGUES: League[] = [
@@ -44,6 +60,7 @@ export const STATIC_LEAGUES: League[] = [
   { id: 'L_PL_2', name: 'Polish League 2', level: LeagueLevel.TIER_2, teamIds: [] },
   { id: 'L_PL_3', name: 'Polish League 3', level: LeagueLevel.TIER_3, teamIds: [] },
   { id: 'L_PL_4', name: 'Regional League', level: LeagueLevel.TIER_4_HIDDEN, teamIds: [] },
+  { id: 'L_CL', name: 'UEFA Champions League', level: LeagueLevel.EUROPEAN, teamIds: [] },
 ];
 
 // 2. Club Loading Logic (Stage 4)
@@ -138,6 +155,26 @@ export const STATIC_CLUBS: Club[] = [
   ...clubsTier3,
   ...clubsTier4
 ];
+
+export const STATIC_CL_CLUBS: Club[] = RAW_CHAMPIONS_LEAGUE_CLUBS.map(raw => ({
+  id: generateEuropeanClubId(raw.name),
+  name: raw.name,
+  shortName: raw.name.split(' ').pop()?.substring(0, 6).toUpperCase() || raw.name.substring(0, 6).toUpperCase(),
+  leagueId: 'L_CL',
+  colorsHex: raw.colors,
+  stadiumName: raw.stadium,
+  stadiumCapacity: raw.capacity,
+  reputation: raw.reputation,
+  isDefaultActive: true,
+  colorPrimary: raw.colors[0],
+  colorSecondary: raw.colors[1] || '#FFFFFF',
+  rosterIds: [],
+  budget: 0,
+  boardStrictness: 5,
+  signingBonusPool: 0,
+  stats: { points: 0, wins: 0, draws: 0, losses: 0, goalsFor: 0, goalsAgainst: 0, goalDifference: 0, played: 0, form: [] },
+  isInPolishCup: false,
+}));
 
 // Populate league teamIds (Only include active teams in the league structure)
 STATIC_LEAGUES.forEach(l => {

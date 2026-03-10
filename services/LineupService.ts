@@ -13,7 +13,13 @@ export const LineupService = {
       (p.suspensionMatches || 0) === 0 && 
       (p.health.status === HealthStatus.HEALTHY || p.health.injury?.severity !== InjurySeverity.SEVERE)
     );
-    const sortedPlayers = [...availablePlayers].sort((a, b) => b.overallRating - a.overallRating);
+        const COND_XI    = 90;
+    const COND_BENCH = 85;
+    const sortedAll   = [...availablePlayers].sort((a, b) => b.overallRating - a.overallRating);
+    const poolXI      = sortedAll.filter(p => p.condition >= COND_XI);
+    const poolBench   = sortedAll.filter(p => p.condition >= COND_BENCH && p.condition < COND_XI);
+    const poolRest    = sortedAll.filter(p => p.condition < COND_BENCH);
+    const sortedPlayers = sortedAll; // fallback dla reszty logiki
     
     const startingXI: (string | null)[] = new Array(11).fill(null);
     const bench: string[] = [];
@@ -21,43 +27,67 @@ export const LineupService = {
     
     const usedPlayerIds = new Set<string>();
 
-    const goalkeepers = sortedPlayers.filter(p => p.position === PlayerPosition.GK);
-    if (goalkeepers.length > 0) {
-      startingXI[0] = goalkeepers[0].id; 
-      usedPlayerIds.add(goalkeepers[0].id);
+      const gkXI    = poolXI.find(p => p.position === PlayerPosition.GK);
+    const gkBench = poolBench.find(p => p.position === PlayerPosition.GK);
+    const gkRest  = poolRest.find(p => p.position === PlayerPosition.GK);
+    const bestGK  = gkXI ?? gkBench ?? gkRest;
+    if (bestGK) {
+      startingXI[0] = bestGK.id;
+      usedPlayerIds.add(bestGK.id);
     }
 
-    for (let i = 1; i < 11; i++) {
+       for (let i = 1; i < 11; i++) {
       const requiredRole = tactic.slots[i].role;
-      const candidate = sortedPlayers.find(p => 
-        !usedPlayerIds.has(p.id) && p.position === requiredRole
-      );
+
+      // Priorytety: świeży na pozycji → świeży ogólnie → ławkowy na pozycji → ławkowy ogólnie → odpoczywający (awaryjnie)
+      const candidate =
+        poolXI.find(p => !usedPlayerIds.has(p.id) && p.position === requiredRole) ??
+        poolXI.find(p => !usedPlayerIds.has(p.id)) ??
+        poolBench.find(p => !usedPlayerIds.has(p.id) && p.position === requiredRole) ??
+        poolBench.find(p => !usedPlayerIds.has(p.id)) ??
+        poolRest.find(p => !usedPlayerIds.has(p.id) && p.position === requiredRole) ??
+        poolRest.find(p => !usedPlayerIds.has(p.id));
 
       if (candidate) {
         startingXI[i] = candidate.id;
         usedPlayerIds.add(candidate.id);
-      } else {
-        const fallback = sortedPlayers.find(p => !usedPlayerIds.has(p.id));
-        if (fallback) {
-           startingXI[i] = fallback.id;
-           usedPlayerIds.add(fallback.id);
-        }
       }
     }
 
-    const benchGK = sortedPlayers.find(p => 
-      p.position === PlayerPosition.GK && !usedPlayerIds.has(p.id)
-    );
-    if (benchGK) {
-      bench.push(benchGK.id);
-      usedPlayerIds.add(benchGK.id);
+       // Ławka: tylko poolXI i poolBench (kondycja ≥85). poolRest trafia do rezerw.
+      // Ławka: priorytet kondycja ≥85, awaryjnie poolRest
+    const benchEligible = [...poolXI, ...poolBench];
+    const addToBench = (p: Player) => { bench.push(p.id); usedPlayerIds.add(p.id); };
+    const findBench = (pos: PlayerPosition | null) =>
+      benchEligible.find(p => !usedPlayerIds.has(p.id) && (pos === null || p.position === pos)) ??
+      poolRest.find(p => !usedPlayerIds.has(p.id) && (pos === null || p.position === pos));
+
+    // Slot 1: Bramkarz (obowiązkowy)
+    const bGK = findBench(PlayerPosition.GK);
+    if (bGK) addToBench(bGK);
+
+    // Sloty 2-4: Minimum 1 obrońca, 1 pomocnik, 1 napastnik
+    const mandatoryPositions = [PlayerPosition.DEF, PlayerPosition.MID, PlayerPosition.FWD];
+    for (const pos of mandatoryPositions) {
+      if (bench.length >= 9) break;
+      const p = findBench(pos);
+      if (p) addToBench(p);
     }
 
-    for (const p of sortedPlayers) {
-      if (!usedPlayerIds.has(p.id) && bench.length < 9) {
-        bench.push(p.id);
-        usedPlayerIds.add(p.id);
-      }
+       // Pozostałe miejsca: tylko zawodnicy z pola (nie bramkarze)
+    for (const p of benchEligible) {
+      if (bench.length >= 9) break;
+      if (!usedPlayerIds.has(p.id) && p.position !== PlayerPosition.GK) addToBench(p);
+    }
+    // Awaryjnie: zawodnicy z pola z poolRest (kondycja <85)
+    for (const p of poolRest) {
+      if (bench.length >= 9) break;
+      if (!usedPlayerIds.has(p.id) && p.position !== PlayerPosition.GK) addToBench(p);
+    }
+    // Ostateczność: dodatkowi bramkarze tylko gdy brakuje kogokolwiek
+    for (const p of [...benchEligible, ...poolRest]) {
+      if (bench.length >= 9) break;
+      if (!usedPlayerIds.has(p.id)) addToBench(p);
     }
 
     const allIds = players.map(p => p.id);

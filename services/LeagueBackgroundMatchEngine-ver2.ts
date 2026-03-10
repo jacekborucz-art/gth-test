@@ -231,25 +231,19 @@ const allPlayedIds = new Set<string>([
     if (seededRng(minute + 100) < hGoalLambda) {
         homeScore++;
         const scorer = GoalAttributionService.pickScorer(homePlayers, hActiveXI, false, () => seededRng(minute + 500));
-        const assistant = GoalAttributionService.pickAssistant(homePlayers, hActiveXI, scorer.id, false, () => seededRng(minute + 501));
-        scorers.push({ 
-          playerId: scorer.id, 
-          assistId: assistant?.id, 
-          minute, 
-          isPenalty: false 
-        });
+        if (scorer) {
+          const assistant = GoalAttributionService.pickAssistant(homePlayers, hActiveXI, scorer.id, false, () => seededRng(minute + 501));
+          scorers.push({ playerId: scorer.id, assistId: assistant?.id, minute, isPenalty: false });
+        }
       }
 
- if (seededRng(minute + 200) < aGoalLambda) {
+      if (seededRng(minute + 200) < aGoalLambda) {
         awayScore++;
         const scorer = GoalAttributionService.pickScorer(awayPlayers, aActiveXI, false, () => seededRng(minute + 600));
-        const assistant = GoalAttributionService.pickAssistant(awayPlayers, aActiveXI, scorer.id, false, () => seededRng(minute + 601));
-        scorers.push({ 
-          playerId: scorer.id, 
-          assistId: assistant?.id, 
-          minute, 
-          isPenalty: false 
-        });
+        if (scorer) {
+          const assistant = GoalAttributionService.pickAssistant(awayPlayers, aActiveXI, scorer.id, false, () => seededRng(minute + 601));
+          scorers.push({ playerId: scorer.id, assistId: assistant?.id, minute, isPenalty: false });
+        }
       }
 
       // LOSOWANIE KARNYCH (Zależne od surowości sędziego)
@@ -259,8 +253,9 @@ const allPlayedIds = new Set<string>([
         const isScored = seededRng(minute + 702) < 0.78; // 78% skuteczności karnych
         if (isScored) {
           if (side === 'H') homeScore++; else awayScore++;
-          const kicker = GoalAttributionService.pickScorer(side === 'H' ? homePlayers : awayPlayers, (side === 'H' ? homeLineup : awayLineup).startingXI as string[], false, () => seededRng(minute + 703));
-          scorers.push({ playerId: kicker.id, minute, isPenalty: true });
+         const kicker = GoalAttributionService.pickScorer(side === 'H' ? homePlayers : awayPlayers, (side === 'H' ? homeLineup : awayLineup).startingXI as string[], false, () => seededRng(minute + 703));
+if (!kicker) break; // brak kandydatów (np. czerwona kartka wyczyściła skład)
+scorers.push({ playerId: kicker.id, minute, isPenalty: true });
         }
       }
 

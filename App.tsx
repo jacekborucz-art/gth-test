@@ -31,6 +31,19 @@ import { CoachCard } from './components/views/CoachCard';
 import { EditorView } from './components/views/EditorView';
 import { ContractManagementView } from './components/views/ContractManagementView';
 import { FreeAgentNegotiationView } from './components/views/FreeAgentNegotiationView';
+import { CLDrawView } from './components/views/CLDrawView';
+import { CLGroupDrawView } from './components/views/CLGroupDrawView';
+import { PolishCupBracketView } from './components/views/PolishCupBracketView';
+import { PolishCupFinalistsView } from './PolishCupEngine/PolishCupFinalistsView';
+import { PostMatchCLStudioView } from './CLEngine/PostMatchCLStudioView';
+import { PreMatchCLStudioView } from './CLEngine/PreMatchCLStudioView';
+import { CLHistoryView } from './CLEngine/CLHistoryView';
+import { CLFinalDrawView } from './CLEngine/CLFinalDrawView';
+import { CLR16DrawView } from './components/views/CLR16DrawView';
+import { CLQFDrawView } from './components/views/CLQFDrawView';
+import { CLSFDrawView } from './components/views/CLSFDrawView';
+import { PreMatchCLFinalView } from './components/views/PreMatchCLFinalView';
+import { PostMatchCLFinalView } from './components/views/PostMatchCLFinalView';
 
 // Internal component to handle view switching
 const AppContent: React.FC = () => {
@@ -38,6 +51,24 @@ const AppContent: React.FC = () => {
 
   const renderView = () => {
     switch (viewState) {
+
+      case ViewState.CL_HISTORY:
+  return <CLHistoryView />;
+case ViewState.PRE_MATCH_CL_STUDIO:
+  return <PreMatchCLStudioView />;
+
+case ViewState.POST_MATCH_CL_STUDIO:
+  return <PostMatchCLStudioView />;
+  case ViewState.PRE_MATCH_CL_FINAL:
+  return <PreMatchCLFinalView />;
+case ViewState.POST_MATCH_CL_FINAL:
+  return <PostMatchCLFinalView />;
+case ViewState.POLISH_CUP_BRACKET:
+  return <PolishCupBracketView />;
+
+      case ViewState.POLISH_CUP_FINALISTS:
+        return <PolishCupFinalistsView />;
+
       case ViewState.START_MENU:
         return <StartMenu />;
       case ViewState.MANAGER_CREATION:
@@ -100,6 +131,24 @@ const AppContent: React.FC = () => {
         return <HiddenLeagueViewer />;
       case ViewState.CUP_DRAW:
         return <CupDrawView />;
+              case ViewState.CL_DRAW:
+        return <CLDrawView />;
+
+case ViewState.CL_GROUP_DRAW:
+        return <CLGroupDrawView />;
+
+        case ViewState.CL_R16_DRAW:
+        return <CLR16DrawView />;
+
+ case ViewState.CL_QF_DRAW:
+        return <CLQFDrawView />;
+
+      case ViewState.CL_SF_DRAW:
+        return <CLSFDrawView />;
+
+      case ViewState.CL_FINAL_DRAW:
+        return <CLFinalDrawView />;
+
         case ViewState.MATCH_HISTORY_BROWSER:
         return (
           <div className="min-h-screen bg-slate-900 text-slate-50 p-6">
