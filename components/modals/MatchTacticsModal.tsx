@@ -15,10 +15,11 @@ interface MatchTacticsModalProps {
   subsHistory: SubstitutionRecord[];
   minute: number;
   sentOffIds?: string[];
+  injs?: Record<string, InjurySeverity>;
 }
 
 export const MatchTacticsModal: React.FC<MatchTacticsModalProps> = ({ 
-  isOpen, onClose, club, lineup, players, fatigue, subsCount, subsHistory, minute, sentOffIds = []
+  isOpen, onClose, club, lineup, players, fatigue, subsCount, subsHistory, minute, sentOffIds = [], injs = {}
 }) => {
   if (!isOpen) return null;
 
@@ -109,6 +110,7 @@ export const MatchTacticsModal: React.FC<MatchTacticsModalProps> = ({
     // Logic: Check position match
     const isNaturalPos = p && p.position === expectedRole;
     const isGkMismatch = p && ((p.position === 'GK' && expectedRole !== 'GK') || (p.position !== 'GK' && expectedRole === 'GK'));
+    const isLightInjury = p && !isOut && injs[p.id] === InjurySeverity.LIGHT;
 
     // Logic: Determine label color based on condition (Stage 1 Pro Addon)
     const conditionLabelClass = p ? (f < 40 ? 'text-red-500' : f < 75 ? 'text-orange-500' : 'text-white') : 'text-white';
@@ -119,6 +121,8 @@ export const MatchTacticsModal: React.FC<MatchTacticsModalProps> = ({
         className={`relative w-full h-20 mb-3 rounded-[24px] transition-all duration-500 group overflow-visible
           ${isSelected 
             ? 'bg-blue-500/20 border-blue-400 shadow-[0_0_30px_rgba(59,130,246,0.3)] scale-[1.02] z-30' 
+            : isLightInjury
+            ? 'bg-orange-500/20 border-orange-400 shadow-[0_0_20px_rgba(249,115,22,0.3)]'
             : isPositionMatch
             ? 'bg-emerald-500/10 border-emerald-400/50 shadow-[0_0_20px_rgba(52,211,153,0.2)] scale-[1.01]'
             : 'bg-white/5 border-white/10 hover:bg-white/[0.08] hover:border-white/20'
@@ -153,8 +157,11 @@ export const MatchTacticsModal: React.FC<MatchTacticsModalProps> = ({
                 <>
                   <div className="flex items-center gap-2">
                     <span className={`text-sm font-black uppercase italic tracking-tighter transition-colors truncate ${conditionLabelClass} ${f >= 75 ? 'group-hover:text-blue-300' : ''}`}>
-                      {p.lastName}
+                      {p.firstName.charAt(0)}. {p.lastName}
                     </span>
+                    {isLightInjury && (
+                      <span className="text-white text-xs font-black leading-none">✚</span>
+                    )}
                     {loc === 'START' && !isNaturalPos && (
                       <span className="text-[7px] bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded border border-amber-500/30 font-black">ZAWODNIK NA NIE SWOJEJ POZYCJI</span>
                     )}

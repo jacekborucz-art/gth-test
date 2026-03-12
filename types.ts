@@ -49,6 +49,7 @@ export enum ViewState {
 
    PRE_MATCH_CL_STUDIO = 'PRE_MATCH_CL_STUDIO',
   POST_MATCH_CL_STUDIO = 'POST_MATCH_CL_STUDIO',
+  MATCH_LIVE_CL = 'MATCH_LIVE_CL',
   CL_BRACKET = 'CL_BRACKET',
   CL_HISTORY = 'CL_HISTORY',
   CL_R16_DRAW = 'CL_R16_DRAW',
@@ -299,6 +300,7 @@ export interface Player {
       severity?: InjurySeverity;
       injuryDate: string; // ISO Date string
       totalDays: number;
+      conditionAtInjury?: number; // kondycja w momencie rejestracji kontuzji
     };
   };
   condition: number;
@@ -317,6 +319,8 @@ export interface Player {
   isNegotiationPermanentBlocked: boolean; // Czy zawodnik obraził się na amen
   transferLockoutUntil: string | null;
   freeAgentLockoutUntil: string | null;
+  /** Lista ID klubów aktualnie zainteresowanych pozyskaniem tego zawodnika (aktualizowana ~1x/miesiąc przez AI) */
+  interestedClubs?: string[];
 }
 
 export interface TeamStats {
@@ -733,6 +737,10 @@ export interface Referee {
   strictness: number;
   consistency: number;
   advantageTendency: number;
+  matchRatings: number[];
+  totalYellowCardsShown: number;
+  totalRedCardsShown: number;
+  experience: number; // DOŚWIADCZENIE SĘDZIEGO
 }
 
 export interface WeatherSnapshot {

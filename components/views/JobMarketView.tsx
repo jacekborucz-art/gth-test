@@ -61,11 +61,30 @@ export const JobMarketView: React.FC = () => {
 
   // TUTAJ WSTAW TEN KOD: Logika pustej listy transferowej
   const transferListedPlayers = useMemo(() => {
-    const all = Object.values(players).flat();
-    return all
-      .filter(p => p.isOnTransferList)
-      .sort((a,b) => b.overallRating - a.overallRating);
-  }, [players]);
+    let list = Object.values(players).flat().filter(p => p.isOnTransferList);
+    if (searchTermPlayers) {
+      list = list.filter(p => p.lastName.toLowerCase().includes(searchTermPlayers.toLowerCase()) || p.firstName.toLowerCase().includes(searchTermPlayers.toLowerCase()));
+    }
+    if (posFilter !== 'ALL') {
+      list = list.filter(p => p.position === posFilter);
+    }
+    list = list.filter(p =>
+      p.age >= filters.age.min && p.age <= filters.age.max &&
+      p.attributes.pace >= filters.pace.min && p.attributes.pace <= filters.pace.max &&
+      p.attributes.strength >= filters.strength.min && p.attributes.strength <= filters.strength.max &&
+      p.attributes.stamina >= filters.stamina.min && p.attributes.stamina <= filters.stamina.max &&
+      p.attributes.defending >= filters.defending.min && p.attributes.defending <= filters.defending.max &&
+      p.attributes.passing >= filters.passing.min && p.attributes.passing <= filters.passing.max &&
+      p.attributes.attacking >= filters.attacking.min && p.attributes.attacking <= filters.attacking.max &&
+      p.attributes.finishing >= filters.finishing.min && p.attributes.finishing <= filters.finishing.max &&
+      p.attributes.technique >= filters.technique.min && p.attributes.technique <= filters.technique.max &&
+      p.attributes.dribbling >= filters.dribbling.min && p.attributes.dribbling <= filters.dribbling.max &&
+      p.attributes.vision >= filters.vision.min && p.attributes.vision <= filters.vision.max &&
+      p.attributes.positioning >= filters.positioning.min && p.attributes.positioning <= filters.positioning.max &&
+      p.attributes.goalkeeping >= filters.goalkeeping.min && p.attributes.goalkeeping <= filters.goalkeeping.max
+    );
+    return list.sort((a,b) => b.overallRating - a.overallRating);
+  }, [players, searchTermPlayers, posFilter, filters]);
 
   const freeAgentPlayers = useMemo(() => {
     let list = [...(players['FREE_AGENTS'] || [])];
@@ -402,9 +421,11 @@ export const JobMarketView: React.FC = () => {
       </div>
 
       <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 3px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.05); border-radius: 10px; }
+        .custom-scrollbar { scrollbar-width: thin; scrollbar-color: #059669 rgba(0,0,0,0.3); }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.3); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #059669; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #10b981; }
         
         .dual-range-input {
           -webkit-appearance: none;

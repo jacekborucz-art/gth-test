@@ -6,7 +6,8 @@ import { MatchHistoryService } from './MatchHistoryService';
 import { MatchEventType } from '../types';
 import { GoalAttributionService } from './GoalAttributionService';
 import { TacticRepository } from '../resources/tactics_db';
-
+import { RefereeService } from './RefereeService';
+import { Referee } from '../types';
 // ============================================================
 //  WBUDOWANY SILNIK PUCHAROWY — symulacja minuta po minucie
 //  Zastępuje wywołanie LeagueBackgroundMatchEngine.simulate()
@@ -42,6 +43,9 @@ const simulateCupMatch = (
     rngState = (rngState * 1664525 + 1013904223) & 0xffffffff;
     return (rngState >>> 0) / 0xffffffff;
   };
+
+  // Losowanie sędziego na mecz
+  const referee: Referee = RefereeService.assignReferee(`${home.id}_${away.id}_${seed}`, 3); // 3 = ważność meczu
 
   // ── POMOCNICZE STRUKTURY ────────────────────────────────────
   const scorers: CupMatchResult['scorers'] = [];
@@ -141,8 +145,8 @@ const simulateCupMatch = (
       + awayTacticBonus + awayDailyForm * 0.002;
 
     // ── Kara za czerwone kartki ─────────────────────────────────
-    const homeXGAfterRed = homeXGBase * redCardMultiplier(homeRedCount) * (1 + awayRedCount * 0.15);
-    const awayXGAfterRed = awayXGBase * redCardMultiplier(awayRedCount) * (1 + homeRedCount * 0.15);
+    const homeXGAfterRed = homeXGBase * redCardMultiplier(homeRedCount) * (1 + awayRedCount * 0.18);
+    const awayXGAfterRed = awayXGBase * redCardMultiplier(awayRedCount) * (1 + homeRedCount * 0.195);
 
     // ── Pogoda (zła pogoda wyrównuje nieco szanse — chaos terenu) ──
     const homeXGWeather = homeXGAfterRed * weatherEqualizer;
@@ -168,8 +172,11 @@ const simulateCupMatch = (
     // Zakres [min, max] rośnie proporcjonalnie do wyrównania sił
     const minChaos = 0.02 + equalness * 0.08; // 2%  → 10%
     const maxChaos = 0.10 + equalness * 0.10; // 10% → 20%
-    return minChaos + rng() * (maxChaos - minChaos);
+        return (minChaos + rng() * (maxChaos - minChaos)) * experienceFactor;
   };
+
+    // Wpływ doświadczenia sędziego na chaos (im mniej doświadczony, tym większy chaos)
+    const experienceFactor = 1 + (50 - (referee.experience || 50)) / 100; // domyślnie 1.0
 
   // ── FUNKCJA: NASYCENIE ───────────────────────────────────────
   // Po 3 bramkach w meczu stopniowy spadek szansy na kolejną
@@ -197,8 +204,12 @@ const simulateCupMatch = (
   // ── FUNKCJA: LOSOWANIE KARTKI ────────────────────────────────
   const maybeGiveCard = (minute: number) => {
     // Szansa na żółtą kartkę w danej minucie ~0.8% na drużynę
-    const YELLOW_CHANCE = 0.008;
-    const RED_DIRECT_CHANCE = 0.001;
+     // Szanse na kartki zależne od sędziego
+    const strictnessFactor = 1 + (referee.strictness - 50) / 100; // 0.5–1.5
+    const decisionFactor = 1 + (referee.consistency - 50) / 200; // 0.75–1.25
+
+    const YELLOW_CHANCE = 0.008 * strictnessFactor * decisionFactor;
+    const RED_DIRECT_CHANCE = 0.001 * strictnessFactor * decisionFactor;
 
     for (const [side, xi, players] of [
       ['HOME', homeXI, hPlayers],
@@ -247,7 +258,9 @@ const simulateCupMatch = (
 
   // ── FUNKCJA: LOSOWANIE KONTUZJI ──────────────────────────────
   const maybeGiveInjury = (minute: number) => {
-    const INJURY_CHANCE = 0.003; // ~0.3% na drużynę na minutę
+        // Im mniej doświadczony sędzia, tym większa szansa na kontuzję
+    const experienceFactor = 1 + (50 - (referee.experience || 50)) / 100;
+    const INJURY_CHANCE = 0.003 * experienceFactor;
 
     const sides: [Player[], (string | null)[]][] = [
       [hPlayers, homeXI],
@@ -598,6 +611,8 @@ export const BackgroundMatchProcessorPolishCup = {
           if (injury) {
             // Losowanie długości kontuzji — używamy deterministycznego seeda
             const injSeed = (seed + p.id.charCodeAt(0)) % 15;
+            const basePenalty = injury.severity === InjurySeverity.SEVERE ? 55 : 20;
+            const condAfterPenalty = Math.max(0, updatedP.condition - (basePenalty + injSeed));
             updatedP.health = {
               status: HealthStatus.INJURED,
               injury: {
@@ -605,11 +620,11 @@ export const BackgroundMatchProcessorPolishCup = {
                 daysRemaining: injury.days,
                 severity: injury.severity,
                 injuryDate: currentDate.toISOString(),
-                totalDays: injury.days
+                totalDays: injury.days,
+                conditionAtInjury: condAfterPenalty
               }
             };
-            const basePenalty = injury.severity === InjurySeverity.SEVERE ? 55 : 20;
-            updatedP.condition = Math.max(0, updatedP.condition - (basePenalty + injSeed));
+            updatedP.condition = condAfterPenalty;
           }
 
           return updatedP;

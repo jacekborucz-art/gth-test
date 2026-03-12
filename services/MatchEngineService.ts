@@ -17,7 +17,20 @@ export const MatchEngineService = {
     const homePressingMod = 0.94 + (homeTacticPressing.pressingIntensity / 100) * 0.12;
     const awayPressingMod  = 0.94 + (awayTacticPressing.pressingIntensity  / 100) * 0.12;
 
-    const update = (players: Player[], fatigueMap: Record<string, number>, sideLineup: (string | null)[], pressureFactor: number, pressingMod: number) => {
+    // Progresywna kara zmęczenia za czerwone kartki — pozostali muszą biegać więcej
+    // 1 kartka → ×1.12 | 2 kartki → ×1.27 | 3+ → ×1.45
+    const _redFatMod = (redCount: number): number => {
+      if (redCount === 0) return 1.0;
+      if (redCount === 1) return 1.12;
+      if (redCount === 2) return 1.27;
+      return 1.45;
+    };
+    const homeRedCount = state.sentOffIds.filter(id => ctx.homePlayers.some(p => p.id === id)).length;
+    const awayRedCount = state.sentOffIds.filter(id => ctx.awayPlayers.some(p => p.id === id)).length;
+    const homeRedFatMod = _redFatMod(homeRedCount);
+    const awayRedFatMod = _redFatMod(awayRedCount);
+
+    const update = (players: Player[], fatigueMap: Record<string, number>, sideLineup: (string | null)[], pressureFactor: number, pressingMod: number, redFatigueMod: number) => {
       players.forEach(p => {
         if (!sideLineup.includes(p.id)) return;
 
@@ -40,6 +53,7 @@ export const MatchEngineService = {
         
         drain *= efficiency;
         drain *= pressingMod;
+        drain *= redFatigueMod;
 
         if (weather && weather.precipitationChance > 0) drain *= 1.08;
         if (weather && weather.tempC > 30) drain *= 1.10;
@@ -48,8 +62,8 @@ export const MatchEngineService = {
       });
     };
 
-    update(ctx.homePlayers, homeFatigue, state.homeLineup.startingXI, homePressureFactor, homePressingMod);
-    update(ctx.awayPlayers, awayFatigue, state.awayLineup.startingXI, awayPressureFactor, awayPressingMod);
+    update(ctx.homePlayers, homeFatigue, state.homeLineup.startingXI, homePressureFactor, homePressingMod, homeRedFatMod);
+    update(ctx.awayPlayers, awayFatigue, state.awayLineup.startingXI, awayPressureFactor, awayPressingMod, awayRedFatMod);
 
     return { home: homeFatigue, away: awayFatigue };
   },

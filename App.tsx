@@ -37,6 +37,7 @@ import { PolishCupBracketView } from './components/views/PolishCupBracketView';
 import { PolishCupFinalistsView } from './PolishCupEngine/PolishCupFinalistsView';
 import { PostMatchCLStudioView } from './CLEngine/PostMatchCLStudioView';
 import { PreMatchCLStudioView } from './CLEngine/PreMatchCLStudioView';
+import { CLMatchLiveView } from './CLEngine/CLMatchLiveView';
 import { CLHistoryView } from './CLEngine/CLHistoryView';
 import { CLFinalDrawView } from './CLEngine/CLFinalDrawView';
 import { CLR16DrawView } from './components/views/CLR16DrawView';
@@ -56,6 +57,9 @@ const AppContent: React.FC = () => {
   return <CLHistoryView />;
 case ViewState.PRE_MATCH_CL_STUDIO:
   return <PreMatchCLStudioView />;
+
+case ViewState.MATCH_LIVE_CL:
+  return <CLMatchLiveView />;
 
 case ViewState.POST_MATCH_CL_STUDIO:
   return <PostMatchCLStudioView />;

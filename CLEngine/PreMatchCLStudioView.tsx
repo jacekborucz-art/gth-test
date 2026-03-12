@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { useGame } from '../context/GameContext';
 import { ViewState, CompetitionType, MatchStatus } from '../types';
 import ligaMistrzowBg from '../Graphic/themes/liga_mistrzow.png';
@@ -7,7 +7,7 @@ const GLASS_CARD = "bg-slate-950/40 backdrop-blur-3xl border border-white/10 sha
 const GLOSS_LAYER = "absolute inset-0 bg-gradient-to-br from-white/[0.05] via-transparent to-transparent pointer-events-none";
 
 export const PreMatchCLStudioView: React.FC = () => {
-  const { fixtures, clubs, currentDate, navigateTo, processCLMatchDay } = useGame();
+  const { fixtures, clubs, currentDate, navigateTo, processCLMatchDay, userTeamId } = useGame();
 
   const todayPairs = useMemo(() => {
     const dateStr = currentDate.toDateString();
@@ -56,6 +56,14 @@ const isR16 = todayPairs.length > 0 &&
     navigateTo(ViewState.POST_MATCH_CL_STUDIO);
   };
 
+  const userHasMatch = todayPairs.some(f => f.homeTeamId === userTeamId || f.awayTeamId === userTeamId);
+
+  useEffect(() => {
+    if (userHasMatch) {
+      navigateTo(ViewState.MATCH_LIVE_CL);
+    }
+  }, [userHasMatch]);
+
   return (
     <div className="h-screen w-full flex flex-col overflow-hidden relative">
 
@@ -92,6 +100,14 @@ const isR16 = todayPairs.length > 0 &&
               <p className="text-slate-400 text-xs mt-1">{currentDate.toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
             </div>
           </div>
+          {userHasMatch && (
+            <button
+              onClick={() => navigateTo(ViewState.MATCH_LIVE_CL)}
+              className="px-10 py-4 bg-emerald-500 hover:bg-emerald-400 text-white font-black italic uppercase tracking-widest rounded-2xl shadow-2xl transition-all hover:scale-105 active:scale-95 text-sm"
+            >
+              ZAGRAJ NA ŻYWO →
+            </button>
+          )}
           <button
             onClick={handleSimulate}
             className="px-10 py-4 bg-amber-400 hover:bg-amber-300 text-slate-900 font-black italic uppercase tracking-widest rounded-2xl shadow-2xl transition-all hover:scale-105 active:scale-95 text-sm"

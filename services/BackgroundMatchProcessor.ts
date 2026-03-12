@@ -13,6 +13,7 @@ import { AttendanceService } from './AttendanceService';
 import { PolandWeatherService } from './PolandWeatherService';
 import { FinanceService } from './FinanceService';
 import { PendingNegotiation } from '@/types';
+import { AiScoutingService } from './AiScoutingService';
 
 export const BackgroundMatchProcessor = {
   processLeagueEvent: (
@@ -23,7 +24,10 @@ export const BackgroundMatchProcessor = {
     playersMap: Record<string, Player[]>,
     lineups: Record<string, Lineup>,
     seasonNumber: number,
-    coaches: Record<string, Coach>
+    coaches: Record<string, Coach>,
+    // Opcjonalne ziarno sesji — używane przez scouting transferowy.
+    // Jeśli nie podane, scouting działa z seed=0 (mniej różnorodny, ale funkcjonalny).
+    sessionSeed: number = 0
   ): { 
     updatedFixtures: Fixture[], 
     updatedClubs: Club[], 
@@ -55,10 +59,23 @@ if (todayFixtures.length === 0) {
       const contractUpdate = AiContractService.processClubsContracts(clubs, playersMap, currentDate, userTeamId);
       const recruitmentUpdate = AiContractService.processAiRecruitment(contractUpdate.updatedClubs, contractUpdate.updatedPlayers, currentDate, userTeamId);
 
+      // Miesięczna aktualizacja zainteresowań transferowych (tylko 1. dzień miesiąca).
+      // AI-kluby przeglądają rynek i aktualizują swoje listy obserwowanych zawodników.
+      let scoutedPlayers = recruitmentUpdate.updatedPlayers;
+      if (currentDate.getDate() === 1) {
+        scoutedPlayers = AiScoutingService.updateTransferInterests(
+          recruitmentUpdate.updatedClubs,
+          recruitmentUpdate.updatedPlayers,
+          currentDate,
+          userTeamId,
+          sessionSeed
+        );
+      }
+
       return { 
         updatedFixtures: fixtures, 
         updatedClubs: recruitmentUpdate.updatedClubs, 
-        updatedPlayers: recruitmentUpdate.updatedPlayers, 
+        updatedPlayers: scoutedPlayers, 
         updatedLineups: newLineups, 
         newOffers: recruitmentUpdate.newOffers, 
         seasonNumber: seasonNumber,
@@ -126,6 +143,11 @@ if (todayFixtures.length === 0) {
         fixture, home, away, hPlayers, aPlayers, hLineup, aLineup, 
         hCoach as any, aCoach as any, assignedRef, weather, seed
       );
+
+      const yellowsInMatch = result.cards.filter(c => c.type === MatchEventType.YELLOW_CARD).length;
+      const redsInMatch = result.cards.filter(c => c.type === MatchEventType.RED_CARD).length;
+      const refereeRating = RefereeService.generateMatchRating(assignedRef);
+      RefereeService.recordMatchStats(assignedRef.id, refereeRating, yellowsInMatch, redsInMatch);
 
       // Obliczamy miejsce gospodarza w tabeli
       const leagueStandings = standingsMap[fixture.leagueId as string] || [];
@@ -274,6 +296,9 @@ if (todayFixtures.length === 0) {
 
               const injury = result.injuries.find(inj => inj.playerId === p.id);
               if (injury) {
+                 const basePenalty = injury.severity === InjurySeverity.SEVERE ? 55 : 20;
+                 const randomExtra = Math.floor(Math.random() * 15); 
+                 const condAfterPenalty = Math.max(0, updatedP.condition - (basePenalty + randomExtra));
                 updatedP.health = {
                     status: HealthStatus.INJURED,
                     injury: {
@@ -281,13 +306,11 @@ if (todayFixtures.length === 0) {
                        daysRemaining: injury.days,
                        severity: injury.severity,
                        injuryDate: currentDate.toISOString(), 
-                       totalDays: injury.days
+                       totalDays: injury.days,
+                       conditionAtInjury: condAfterPenalty
                     }
                  };
-
-                 const basePenalty = injury.severity === InjurySeverity.SEVERE ? 55 : 20;
-                 const randomExtra = Math.floor(Math.random() * 15); 
-                 updatedP.condition = Math.max(0, updatedP.condition - (basePenalty + randomExtra));
+                 updatedP.condition = condAfterPenalty;
               }
               return updatedP;
            });
@@ -302,6 +325,18 @@ if (todayFixtures.length === 0) {
        currentClubs = finalUpdate.updatedClubs;
     currentPlayers = finalUpdate.updatedPlayers;
  const newOffers = finalUpdate.newOffers;
+
+    // Miesięczna aktualizacja zainteresowań transferowych — dotyczy też dni meczowych.
+    if (currentDate.getDate() === 1) {
+      currentPlayers = AiScoutingService.updateTransferInterests(
+        currentClubs,
+        currentPlayers,
+        currentDate,
+        userTeamId,
+        sessionSeed
+      );
+    }
+
     return { 
       
       updatedFixtures: currentFixtures, 

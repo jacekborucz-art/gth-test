@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Lineup, Player, SubstitutionRecord, PlayerPosition } from '../../types';
+import { Lineup, Player, SubstitutionRecord, PlayerPosition, InjurySeverity } from '../../types';
 import { TacticRepository } from '../../resources/tactics_db';
 import { PlayerPresentationService } from '../../services/PlayerPresentationService';
 import { LineupService } from '../../services/LineupService';
@@ -15,10 +15,11 @@ interface MatchCupTacticsModalProps {
   subsHistory: SubstitutionRecord[];
   minute: number;
   sentOffIds?: string[];
+  injuries?: Record<string, InjurySeverity>;
 }
 
 export const MatchCupTacticsModal: React.FC<MatchCupTacticsModalProps> = ({ 
-  isOpen, onClose, club, lineup, players, fatigue, subsCount, subsHistory, minute, sentOffIds = []
+  isOpen, onClose, club, lineup, players, fatigue, subsCount, subsHistory, minute, sentOffIds = [], injuries = {}
 }) => {
   if (!isOpen) return null;
 
@@ -102,6 +103,7 @@ export const MatchCupTacticsModal: React.FC<MatchCupTacticsModalProps> = ({
     
     const isNaturalPos = p && p.position === expectedRole;
     const isGkMismatch = p && ((p.position === 'GK' && expectedRole !== 'GK') || (p.position !== 'GK' && expectedRole === 'GK'));
+    const isLightInjury = p ? injuries[p.id] === InjurySeverity.LIGHT : false;
 
     const selectedStarterRole = (selectedSlot?.loc === 'START' && selectedSlot.index !== undefined)
       ? tactic.slots[selectedSlot.index]?.role
@@ -116,7 +118,9 @@ export const MatchCupTacticsModal: React.FC<MatchCupTacticsModalProps> = ({
             ? 'bg-blue-500/20 border-blue-400 shadow-[0_0_30px_rgba(59,130,246,0.3)] scale-[1.02] z-30' 
             : isPositionMatch
               ? 'bg-emerald-500/10 border-emerald-400/60 shadow-[0_0_22px_rgba(52,211,153,0.35)] scale-[1.01]'
-              : 'bg-white/5 border-white/10 hover:bg-white/[0.08] hover:border-white/20'
+              : isLightInjury
+                ? 'bg-orange-500/20 border-orange-400/60 hover:bg-orange-500/25 hover:border-orange-400/80'
+                : 'bg-white/5 border-white/10 hover:bg-white/[0.08] hover:border-white/20'
           }
           ${isOut ? 'opacity-30 grayscale pointer-events-none' : 'cursor-pointer'}
           ${isRedBlocked ? 'bg-black/60 opacity-80 cursor-not-allowed grayscale' : ''}
@@ -148,10 +152,16 @@ export const MatchCupTacticsModal: React.FC<MatchCupTacticsModalProps> = ({
             <div className="flex flex-col">
               {p ? (
                 <>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-black text-white uppercase italic tracking-tighter group-hover:text-blue-300 transition-colors truncate">
-                      {p.lastName}
+                  <div className="flex items-center gap-3">
+                    <span 
+                      className="text-sm font-black text-white uppercase italic tracking-tighter transition-colors truncate group-hover:text-blue-300"
+                      style={{ maxWidth: 'calc(100% + 4px)' }}
+                    >
+                      {p.firstName[0]}. {p.lastName}
                     </span>
+                    {injuries[p.id] === InjurySeverity.LIGHT && (
+                      <span className="text-white font-black text-sm leading-none shrink-0 ml-1">✚</span>
+                    )}
                     {loc === 'START' && !isNaturalPos && (
                       <span className="text-[7px] bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded border border-amber-500/30 font-black">NIEOPTYMALNY</span>
                     )}

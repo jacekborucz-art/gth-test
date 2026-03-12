@@ -450,7 +450,13 @@ export const CalendarEngine = {
 
       // ── LM: 1/8 FINAŁU ────────────────────────────────────────────────────
       case CompetitionType.CL_R16:
-      case CompetitionType.CL_R16_RETURN: {
+      case CompetitionType.CL_R16_RETURN:
+      // ── LM: 1/4 FINAŁU ────────────────────────────────────────────────────
+      case CompetitionType.CL_QF:
+      case CompetitionType.CL_QF_RETURN:
+      // ── LM: 1/2 FINAŁU ────────────────────────────────────────────────────
+      case CompetitionType.CL_SF:
+      case CompetitionType.CL_SF_RETURN: {
         const leagueId = slot.competition as string;
         const fixture = allFixtures.find(
           f =>

@@ -249,12 +249,13 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
     if (!activePenalty || !matchState || !ctx) return;
 
     if (activePenalty.phase === 'AWARDED') {
-      setTimeout(() => {
+      const t = setTimeout(() => {
         setActivePenalty(prev => prev ? { ...prev, phase: 'EXECUTING' } : null);
       }, 2000);
+      return () => clearTimeout(t);
     } 
     else if (activePenalty.phase === 'EXECUTING') {
-      setTimeout(() => {
+      const t = setTimeout(() => {
         const isGoal = GoalAttributionService.checkShotSuccess(activePenalty.kicker, activePenalty.keeper, [], false, () => Math.random(), true);
         const finalResult = isGoal ? MatchEventType.PENALTY_SCORED : MatchEventType.PENALTY_MISSED;
         
@@ -274,6 +275,12 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
             } else {
               nextAwayScore++;
               newAwayGoals.push({ playerName: activePenalty.kicker.lastName, minute: prev.minute, isPenalty: true });
+            }
+          } else {
+            if (activePenalty.side === 'HOME') {
+              newHomeGoals.push({ playerName: activePenalty.kicker.lastName, minute: prev.minute, isPenalty: true, isMiss: true });
+            } else {
+              newAwayGoals.push({ playerName: activePenalty.kicker.lastName, minute: prev.minute, isPenalty: true, isMiss: true });
             }
           }
 
@@ -305,12 +312,14 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
           setTimeout(() => setIsCelebratingGoal(false), 3000);
         }
       }, 2500);
+      return () => clearTimeout(t);
     }
     else if (activePenalty.phase === 'RESULT') {
-      setTimeout(() => {
+      const t = setTimeout(() => {
         setActivePenalty(null);
         setMatchState(prev => prev ? { ...prev, isPausedForEvent: false } : null);
       }, 3000);
+      return () => clearTimeout(t);
     }
   }, [activePenalty?.phase, matchState, ctx, setMatchState]);
 
@@ -662,7 +671,20 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
           ownShortHandedPenalty = attackingMissing * 0.016 * offensiveRisk;
         }
 
-        shotThreshold = Math.max(0.04, shotThreshold - defBiasPenalty + strikerBonus + activeFatPenalty + openBacksBonus - ownShortHandedPenalty + noGkBonus);
+        // ─── BOOST: CZERWONA KARTKA + DEFENSYWNA TAKTYKA ──────────────────────
+        // Broniący grał defensywnie (attackBias ≤ 60) po czerwonej kartce → brak kary "otwarte plecy",
+        // ale i tak jest luka w obronie. Przeciwnik dostaje losowy boost do akcji podbramkowych.
+        // Skala progresywna: 1 kartka [0.006–0.015] | 2 kartki ×1.7 [0.010–0.026] | 3+ ×1.7^(n-1)
+        let redCardDefensiveBoost = 0;
+        const defendingSentOff = nextSentOffIds.filter(id =>
+          (activeSide === 'HOME' ? ctx.awayPlayers : ctx.homePlayers).some(p => p.id === id)
+        ).length;
+        if (defendingSentOff > 0 && defendingTacticObj.attackBias <= 60) {
+          const baseBoost = 0.006 + seededRng(currentSeed, nextMinute, 777) * 0.009;
+          redCardDefensiveBoost = baseBoost * Math.pow(1.7, defendingSentOff - 1);
+        }
+
+        shotThreshold = Math.max(0.04, shotThreshold - defBiasPenalty + strikerBonus + activeFatPenalty + openBacksBonus - ownShortHandedPenalty + noGkBonus + redCardDefensiveBoost);
 
         // Momentum bonus do shotThreshold - tylko gdy aktywna drużyna ma impet po swojej stronie
         // max +0.015 przy momentum 100, przy momentum 50 → +0.0075
@@ -1092,6 +1114,40 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
            }
         }
 
+        // --- Progresywne ryzyko kontuzji na podstawie kondycji (poniżej 70%) ---
+        const staminaInjurySides: Array<{ side: 'HOME' | 'AWAY', lineup: (string | null)[], injuries: Record<string, InjurySeverity>, fatMap: Record<string, number>, pool: Player[] }> = [
+          { side: 'HOME', lineup: nextHomeLineup.startingXI, injuries: nextHomeInjuries, fatMap: localHomeFatigue, pool: ctx.homePlayers },
+          { side: 'AWAY', lineup: nextAwayLineup.startingXI, injuries: nextAwayInjuries, fatMap: localAwayFatigue, pool: ctx.awayPlayers },
+        ];
+        staminaInjurySides.forEach(({ side, lineup, injuries, fatMap, pool }, sideIdx) => {
+          lineup.forEach((id, slotIdx) => {
+            if (!id || injuries[id]) return;
+            const stamina = fatMap[id] ?? 100;
+            if (stamina >= 64) return;
+            let pStamina = 0;
+            if (stamina >= 50) {
+              pStamina = ((70 - stamina) / 20) * 0.50;
+            } else if (stamina >= 15) {
+              pStamina = 0.50 + ((50 - stamina) / 35) * 0.40;
+            } else {
+              pStamina = 0.90;
+            }
+            if (seededRng(currentSeed, nextMinute, 5000 + sideIdx * 100 + slotIdx) < pStamina) {
+              const p = pool.find(px => px.id === id);
+              if (!p) return;
+              const isSevere = seededRng(currentSeed, nextMinute, 5200 + sideIdx * 100 + slotIdx) < 0.22;
+              processInjury({
+                minute: nextMinute,
+                teamSide: side,
+                type: isSevere ? MatchEventType.INJURY_SEVERE : MatchEventType.INJURY_LIGHT,
+                primaryPlayerId: id,
+                text: p.lastName
+              } as MatchEvent);
+            }
+          });
+        });
+        // --- koniec progresywnego ryzyka ---
+
         const upgrades = InjuryUpgradeService.checkUpgrades(ctx, prev, () => seededRng(currentSeed, nextMinute, 3000));
         upgrades.forEach(upg => processInjury(upg));
 
@@ -1341,7 +1397,9 @@ return {
           const days = isSev ? (14 + Math.floor(Math.random() * 30)) : (2 + Math.floor(Math.random() * 6));
           const type = isSev ? "Poważny uraz więzadeł" : "Stłuczenie mięśnia";
           
-       return {
+       const penalty = isSev ? (Math.floor(Math.random() * 31) + 60) : (Math.floor(Math.random() * 26) + 10);
+          const condAfterPenalty = Math.max(0, p.condition - penalty);
+          return {
             ...p,
             health: {
               status: HealthStatus.INJURED,
@@ -1350,10 +1408,11 @@ return {
                 daysRemaining: days, 
                 severity: sev,
                 injuryDate: currentDate.toISOString(), // -> tutaj wstaw kod
-                totalDays: days
+                totalDays: days,
+                conditionAtInjury: condAfterPenalty
               }
             },
-            condition: Math.max(0, p.condition - (isSev ? (Math.floor(Math.random() * 31) + 60) : (Math.floor(Math.random() * 26) + 10)))
+            condition: condAfterPenalty
           };
         }
         return p;
@@ -1616,7 +1675,7 @@ const summary: MatchSummary = {
               {g.isMiss ? '❌' : '⚽'}{' '}
               {g.varDisallowed
                 ? <><s>{nameToDisplay} ({g.minute}'{g.isPenalty ? ' k.' : ''})</s> (VAR)</>
-                : `${nameToDisplay} (${g.minute}'${g.isPenalty ? ' k.' : ''}${g.isMiss ? ' - pudło' : ''})`}
+                : `${nameToDisplay} (${g.minute}'${g.isPenalty ? ' k.' : ''}${g.isMiss ? '' : ''})`}
             </span>
           );
         })}
@@ -2211,6 +2270,12 @@ const hasScored = matchState.homeGoals.some(g => g.playerName === p.lastName && 
   {matchState.isFinished ? (
     <div className="flex gap-3 justify-center py-3 px-8 bg-white/5 border border-white/10 rounded-[28px] shadow-2xl">
       <button
+        onClick={() => setShowCommentHistory(!showCommentHistory)}
+        className="min-w-[60px] py-3 px-6 rounded-xl bg-white/5 border border-white/10 text-slate-300 font-black italic uppercase tracking-widest text-xs hover:bg-white/10 hover:text-white transition-all hover:scale-105 active:scale-95 shadow-xl flex items-center justify-center gap-2"
+      >
+        PRZEBIEG MECZU
+      </button>
+      <button
         onClick={handleFinishMatch}
         className="min-w-[160px] py-3 px-10 rounded-2xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 font-black italic uppercase tracking-tighter text-base transition-all hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(16,185,129,0.2)] hover:bg-emerald-600/30 flex items-center justify-center gap-3 group"
       >
@@ -2425,7 +2490,7 @@ const hasScored = matchState.homeGoals.some(g => g.playerName === p.lastName && 
         <div className="fixed inset-0 z-[990] backdrop-blur-md bg-black/40 pointer-events-none" />
       )}
 
-      <MatchTacticsModal isOpen={isTacticsOpen} onClose={handleTacticsClose} club={userSide === 'HOME' ? ctx.homeClub : ctx.awayClub} lineup={userSide === 'HOME' ? matchState.homeLineup : matchState.awayLineup} players={userSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers} fatigue={userSide === 'HOME' ? matchState.homeFatigue : matchState.awayFatigue} subsCount={userSide === 'HOME' ? matchState.subsCountHome : matchState.subsCountAway} subsHistory={userSide === 'HOME' ? matchState.homeSubsHistory : matchState.awaySubsHistory} minute={matchState.minute} sentOffIds={matchState.sentOffIds} />
+      <MatchTacticsModal isOpen={isTacticsOpen} onClose={handleTacticsClose} club={userSide === 'HOME' ? ctx.homeClub : ctx.awayClub} lineup={userSide === 'HOME' ? matchState.homeLineup : matchState.awayLineup} players={userSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers} fatigue={userSide === 'HOME' ? matchState.homeFatigue : matchState.awayFatigue} subsCount={userSide === 'HOME' ? matchState.subsCountHome : matchState.subsCountAway} subsHistory={userSide === 'HOME' ? matchState.homeSubsHistory : matchState.awaySubsHistory} minute={matchState.minute} sentOffIds={matchState.sentOffIds} injs={userSide === 'HOME' ? matchState.homeInjuries : matchState.awayInjuries} />
       <style>{`
         @keyframes shine { from { left: -150%; } to { left: 150%; } }
         .animate-shine { animation: shine 3s infinite linear; }

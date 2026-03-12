@@ -8,10 +8,10 @@ export const LineupService = {
   autoPickLineup: (clubId: string, players: Player[], tacticId: string = '4-4-2'): Lineup => {
     const tactic = TacticRepository.getById(tacticId);
     
-    // Na start wybieramy tylko tych, którzy są w stanie grać (nie SEVERE i nie zawieszeni)
+    // Na start wybieramy tylko tych, którzy są w stanie grać (nie SEVERE, nie zawieszeni, daysRemaining <= 2)
     const availablePlayers = players.filter(p => 
       (p.suspensionMatches || 0) === 0 && 
-      (p.health.status === HealthStatus.HEALTHY || p.health.injury?.severity !== InjurySeverity.SEVERE)
+      (p.health.status === HealthStatus.HEALTHY || (p.health.injury?.severity !== InjurySeverity.SEVERE && (p.health.injury?.daysRemaining ?? 0) <= 2))
     );
         const COND_XI    = 90;
     const COND_BENCH = 85;

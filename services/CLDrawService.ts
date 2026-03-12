@@ -96,7 +96,8 @@ export const CLDrawService = {
       } else if (f.homePenaltyScore != null && f.awayPenaltyScore != null) {
         winnerId = f.homePenaltyScore > f.awayPenaltyScore ? leg1.awayTeamId : leg1.homeTeamId;
       } else {
-        return; // brak rozstrzygnięcia — pomiń
+        // Fallback: karne nie zostały zapisane mimo remisu — awansuje drużyna A (gospodarz 1. meczu)
+        winnerId = leg1.homeTeamId;
       }
       r1qWinners.push(winnerId);
     });
@@ -107,21 +108,39 @@ export const CLDrawService = {
       .sort((a, b) => a.tier - b.tier || b.reputation - a.reputation)
       .map(c => generateEuropeanClubId(c.name));
 
-    // 4. Budowa puli: zwycięzcy R1Q + drużyny bez R1Q + Mistrz Polski
-    const pool = [...r1qWinners, ...euroIds];
+    // 4. Budowa puli: Mistrz Polski + drużyna gracza ZAWSZE pierwsi, potem reszta do 64
+    // WAŻNE: polskie drużyny dodajemy N A P I E R W, zanim EU drużyny mogą wypełnić 64 sloty
+    const pool: string[] = [];
 
-    // Dodaj Mistrza Polski jeśli nie jest drużyną gracza (gracza wchodzimy później)
-    if (polishChampionId !== userTeamId) {
-      pool.push(polishChampionId);
+    // Najpierw dodaj polskie drużyny (gwarantujemy ich miejsce w puli)
+    if (polishChampionId) pool.push(polishChampionId);
+    if (userTeamId && !pool.includes(userTeamId)) pool.push(userTeamId);
+
+    // Dodaj zwycięzców R1Q
+    for (const id of r1qWinners) {
+      if (!pool.includes(id)) pool.push(id);
     }
 
-    // Jeśli pula nadal < 64 — uzupełnij Tier1
+    // Dodaj europejskie drużyny bez R1Q (Tier1/2) do zapełnienia do 64
+    for (const id of euroIds) {
+      if (pool.length >= 64) break;
+      if (!pool.includes(id)) pool.push(id);
+    }
+
+    // Jeśli pula nadal < 64 — uzupełnij przegranymi z R1Q (18 dostępnych)
     if (pool.length < 64) {
-      const tier1Ids = rawClubs
-        .filter(c => c.tier === 1 && !pool.includes(generateEuropeanClubId(c.name)))
+      const r1qLoserIds = [...r1qParticipantIds]
+        .filter(id => !r1qWinners.includes(id) && !pool.includes(id));
+      pool.push(...r1qLoserIds.slice(0, 64 - pool.length));
+    }
+
+    // Awaryjne uzupełnienie Tier2 jeśli wciąż < 64
+    if (pool.length < 64) {
+      const tier2Ids = rawClubs
+        .filter(c => c.tier === 2 && !pool.includes(generateEuropeanClubId(c.name)))
         .sort((a, b) => b.reputation - a.reputation)
         .map(c => generateEuropeanClubId(c.name));
-      pool.push(...tier1Ids.slice(0, 64 - pool.length));
+      pool.push(...tier2Ids.slice(0, 64 - pool.length));
     }
 
     return pool.slice(0, 64);
@@ -174,8 +193,9 @@ export const CLDrawService = {
     strong = seededShuffle(strong, seed);
     weak = seededShuffle(weak, seed ^ 0xdeadbeef);
 
+    const pairCount = Math.min(strong.length, weak.length);
     const pairs: Fixture[] = [];
-    for (let i = 0; i < 32; i++) {
+    for (let i = 0; i < pairCount; i++) {
       const homeId = strong[i];
       const awayId = weak[i];
       if (!homeId || !awayId) continue;
@@ -218,7 +238,8 @@ export const CLDrawService = {
       } else if (f.homePenaltyScore != null && f.awayPenaltyScore != null) {
         winnerId = f.homePenaltyScore > f.awayPenaltyScore ? leg1.awayTeamId : leg1.homeTeamId;
       } else {
-        return;
+        // Fallback: karne nie zostały zapisane mimo remisu — awansuje drużyna A (gospodarz 1. meczu)
+        winnerId = leg1.homeTeamId;
       }
       r2qWinners.push(winnerId);
     });
@@ -444,7 +465,8 @@ return fixtures;
       } else if (f.homePenaltyScore != null && f.awayPenaltyScore != null) {
         winnerId = f.homePenaltyScore > f.awayPenaltyScore ? leg1.awayTeamId : leg1.homeTeamId;
       } else {
-        return; // brak rozstrzygnięcia — pomiń
+        // Fallback: karne nie zostały zapisane mimo remisu — awansuje drużyna A (gospodarz 1. meczu)
+        winnerId = leg1.homeTeamId;
       }
       winners.push(winnerId);
     });
@@ -525,7 +547,8 @@ return fixtures;
       } else if (f.homePenaltyScore != null && f.awayPenaltyScore != null) {
         winnerId = f.homePenaltyScore > f.awayPenaltyScore ? leg1.awayTeamId : leg1.homeTeamId;
       } else {
-        return;
+        // Fallback: karne nie zostały zapisane mimo remisu — awansuje drużyna A (gospodarz 1. meczu)
+        winnerId = leg1.homeTeamId;
       }
       winners.push(winnerId);
     });
@@ -604,7 +627,8 @@ return fixtures;
       } else if (f.homePenaltyScore != null && f.awayPenaltyScore != null) {
         winnerId = f.homePenaltyScore > f.awayPenaltyScore ? leg1.awayTeamId : leg1.homeTeamId;
       } else {
-        return;
+        // Fallback: karne nie zostały zapisane mimo remisu — awansuje drużyna A (gospodarz 1. meczu)
+        winnerId = leg1.homeTeamId;
       }
       winners.push(winnerId);
     });
@@ -631,6 +655,53 @@ return fixtures;
     };
   },
 
+
+  // ── ZABEZPIECZENIE SLOTÓW ────────────────────────────────────────────────
+  // Pomocnicze: pobierz wszystkich uczestników danej rundy (1. mecz)
+  getR16Participants: (allFixtures: Fixture[]): string[] => {
+    const ids = new Set<string>();
+    allFixtures.forEach(f => {
+      if (f.leagueId === CompetitionType.CL_R16) {
+        ids.add(f.homeTeamId); ids.add(f.awayTeamId);
+      }
+    });
+    return [...ids];
+  },
+
+  getQFParticipants: (allFixtures: Fixture[]): string[] => {
+    const ids = new Set<string>();
+    allFixtures.forEach(f => {
+      if (f.leagueId === CompetitionType.CL_QF) {
+        ids.add(f.homeTeamId); ids.add(f.awayTeamId);
+      }
+    });
+    return [...ids];
+  },
+
+  getSFParticipants: (allFixtures: Fixture[]): string[] => {
+    const ids = new Set<string>();
+    allFixtures.forEach(f => {
+      if (f.leagueId === CompetitionType.CL_SF) {
+        ids.add(f.homeTeamId); ids.add(f.awayTeamId);
+      }
+    });
+    return [...ids];
+  },
+
+  // Jeśli lista zwycięzców jest niepełna, uzupełnij z puli uczestników poprzedniej rundy
+  guaranteeWinners: (
+    winners: string[],
+    fallbackPool: string[],
+    expectedCount: number,
+  ): string[] => {
+    if (winners.length >= expectedCount) return winners.slice(0, expectedCount);
+    const result = [...winners];
+    for (const id of fallbackPool) {
+      if (result.length >= expectedCount) break;
+      if (!result.includes(id)) result.push(id);
+    }
+    return result;
+  },
 
 };                // ← koniec obiektu CLDrawService
 

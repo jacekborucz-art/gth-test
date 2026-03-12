@@ -322,6 +322,9 @@ const clFixtures = useMemo(
           pair.leg2.homePenaltyScore > pair.leg2.awayPenaltyScore
             ? pair.teamBId
             : pair.teamAId;
+      } else {
+        // Fallback: karne nie zostały zapisane mimo remisu — awansuje Team A (gospodarz 1. meczu)
+        winnerId = pair.teamAId;
       }
     }
 

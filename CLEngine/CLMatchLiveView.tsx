@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { useGame } from '../../context/GameContext';
+import { useGame } from '../context/GameContext';
 import { 
   ViewState, MatchLiveState, MatchContext, PlayerPosition, CompetitionType, 
   MatchEventType, SubstitutionRecord, MatchLogEntry, InjurySeverity, 
@@ -8,7 +8,7 @@ import {
   PlayerPerformance,
   MatchEvent,
   InstructionTempo, InstructionMindset, InstructionIntensity
-} from '../../types';
+} from '../types';
 
 const calculateLiveRating = (player: Player, side: 'HOME' | 'AWAY', state: any) => {
   let r = 6.0;
@@ -35,29 +35,40 @@ const calculateLiveRating = (player: Player, side: 'HOME' | 'AWAY', state: any) 
   return Math.min(10, Math.max(1, r)).toFixed(1);
 };
 
-import { Button } from '../ui/Button';
-import { Card } from '../ui/Card';
-import { MatchEngineService } from '../../services/MatchEngineService';
-import { MomentumService } from '../../services/MomentumService';
-import { TacticRepository } from '../../resources/tactics_db';
-import { PlayerPresentationService } from '../../services/PlayerPresentationService';
-import { MatchTacticsModal } from '../modals/MatchTacticsModal';
-import { GoalAttributionService } from '../../services/GoalAttributionService';
-import { BackgroundMatchProcessor } from '../../services/BackgroundMatchProcessor';
-import { RefereeService } from '../../services/RefereeService';
-import { PolandWeatherService } from '../../services/PolandWeatherService';
-import { DisciplineService } from '../../services/DisciplineService';
-import { AiMatchDecisionService } from '../../services/AiMatchDecisionService';
-import { PostMatchCommentSelector } from '../../PolishCupEngine/PostMatchCommentSelector';
-import { PlayerStatsService } from '../../services/PlayerStatsService';
-import { MATCH_COMMENTARY_DB } from '../../data/match_commentary_pl';
-import { KitSelectionService } from '../../services/KitSelectionService';
-import { InjuryEventGenerator } from '../../services/InjuryEventGenerator';
-import { MatchHistoryService } from '../../services/MatchHistoryService';
-import { DebugLoggerService } from '../../services/DebugLoggerService';
-import { InjuryUpgradeService } from '../../services/InjuryUpgradeService';
-import { AttendanceService } from '../../services/AttendanceService';
+import { Button } from '../components/ui/Button';
+import { Card } from '../components/ui/Card';
+import { MatchEngineService } from '../services/MatchEngineService';
+import { MomentumService } from '../services/MomentumService';
+import { TacticRepository } from '../resources/tactics_db';
+import { PlayerPresentationService } from '../services/PlayerPresentationService';
+import { MatchTacticsModal } from '../components/modals/MatchTacticsModal';
+import { GoalAttributionService } from '../services/GoalAttributionService';
+import { BackgroundMatchProcessor } from '../services/BackgroundMatchProcessor';
+import { BackgroundMatchProcessorCL } from '../services/BackgroundMatchProcessorCL';
+import { RefereeService } from '../services/RefereeService';
+import { PolandWeatherService } from '../services/PolandWeatherService';
+import { DisciplineService } from '../services/DisciplineService';
+import { AiMatchDecisionService } from '../services/AiMatchDecisionService';
+import { PostMatchCommentSelector } from '../PolishCupEngine/PostMatchCommentSelector';
+import { PlayerStatsService } from '../services/PlayerStatsService';
+import { MATCH_COMMENTARY_DB } from '../data/match_commentary_pl';
+import { KitSelectionService } from '../services/KitSelectionService';
+import { InjuryEventGenerator } from '../services/InjuryEventGenerator';
+import { MatchHistoryService } from '../services/MatchHistoryService';
+import { DebugLoggerService } from '../services/DebugLoggerService';
+import { InjuryUpgradeService } from '../services/InjuryUpgradeService';
+import { AttendanceService } from '../services/AttendanceService';
+import { LineupService } from '../services/LineupService';
 import { FinanceService } from '@/services/FinanceService';
+
+const CL_LEAGUE_IDS: CompetitionType[] = [
+  CompetitionType.CL_R1Q, CompetitionType.CL_R1Q_RETURN,
+  CompetitionType.CL_R2Q, CompetitionType.CL_R2Q_RETURN,
+  CompetitionType.CL_GROUP_STAGE,
+  CompetitionType.CL_R16, CompetitionType.CL_R16_RETURN,
+  CompetitionType.CL_QF, CompetitionType.CL_QF_RETURN,
+  CompetitionType.CL_SF, CompetitionType.CL_SF_RETURN,
+];
 
 const BigJerseyIcon = ({ primary, secondary, size = "w-16 h-16" }: { primary: string, secondary: string, size?: string }) => (
   <div className="relative group">
@@ -73,11 +84,11 @@ const BigJerseyIcon = ({ primary, secondary, size = "w-16 h-16" }: { primary: st
   </div>
 );
 
-export const MatchLiveView = () => {
+export const CLMatchLiveView = () => {
   const { 
     navigateTo, userTeamId, clubs, fixtures, players, 
     lineups, currentDate, setLastMatchSummary, applySimulationResult, viewPlayerDetails,seasonNumber, coaches,
-    roundResults,
+    roundResults, sessionSeed,
     activeMatchState: matchState, setActiveMatchState: setMatchState
   } = useGame();
   
@@ -91,6 +102,15 @@ export const MatchLiveView = () => {
     phase: 'AWARDED' | 'EXECUTING' | 'RESULT',
     result?: MatchEventType
   } | null>(null);
+
+  const [activeVAR, setActiveVAR] = useState<{
+    side: 'HOME' | 'AWAY',
+    scorerName: string,
+    minute: number,
+    phase: 'CHECKING' | 'VERDICT',
+    verdict?: 'GOAL' | 'NO_GOAL'
+  } | null>(null);
+  const varDataRef = useRef<{ side: 'HOME' | 'AWAY', scorerName: string, minute: number } | null>(null);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
 
@@ -119,7 +139,8 @@ export const MatchLiveView = () => {
   const ctx = useMemo(() => {
     const fixture = fixtures.find(f => 
         (f.homeTeamId === userTeamId || f.awayTeamId === userTeamId) &&
-        f.date.toDateString() === currentDate.toDateString()
+        f.date.toDateString() === currentDate.toDateString() &&
+        CL_LEAGUE_IDS.includes(f.leagueId as CompetitionType)
     );
     if (!fixture) return null;
     const home = clubs.find(c => c.id === fixture.homeTeamId)!;
@@ -127,7 +148,7 @@ export const MatchLiveView = () => {
     const hPlayers = players[home.id] || [];
     const aPlayers = players[away.id] || [];
     return {
-      fixture, homeClub: home, awayClub: away, homePlayers: hPlayers, awayPlayers: aPlayers, homeAdvantage: true, competition: CompetitionType.LEAGUE
+      fixture, homeClub: home, awayClub: away, homePlayers: hPlayers, awayPlayers: aPlayers, homeAdvantage: true, competition: fixture.leagueId as CompetitionType
     } as MatchContext;
   }, [userTeamId, clubs, fixtures, players, currentDate]);
 
@@ -174,10 +195,13 @@ const isPausedForSevereInjury = useMemo(() => {
    if (ctx && (!matchState || matchState.fixtureId !== ctx.fixture.id)) {
       const sessionSeed = Math.abs(Math.floor(Date.now() * Math.random()));
       
+      const homeLineupData = lineups[ctx.homeClub.id] || LineupService.autoPickLineup(ctx.homeClub.id, ctx.homePlayers);
+      const awayLineupData = lineups[ctx.awayClub.id] || LineupService.autoPickLineup(ctx.awayClub.id, ctx.awayPlayers);
+
       setMatchState({
         fixtureId: ctx.fixture.id, minute: 0, period: 1, addedTime: 0, isPaused: true,
         isPausedForEvent: false, isHalfTime: false, isFinished: false, speed: 1, momentum: 0, momentumPulse: 0,
-        homeScore: 0, awayScore: 0, homeLineup: lineups[ctx.homeClub.id], awayLineup: lineups[ctx.awayClub.id],
+        homeScore: 0, awayScore: 0, homeLineup: homeLineupData, awayLineup: awayLineupData,
         // TUTAJ WSTAW TEN KOD
         homeFatigue: ctx.homePlayers.reduce((acc, p) => ({ ...acc, [p.id]: p.condition }), {}),
         awayFatigue: ctx.awayPlayers.reduce((acc, p) => ({ ...acc, [p.id]: p.condition }), {}),
@@ -240,12 +264,13 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
     if (!activePenalty || !matchState || !ctx) return;
 
     if (activePenalty.phase === 'AWARDED') {
-      setTimeout(() => {
+      const t = setTimeout(() => {
         setActivePenalty(prev => prev ? { ...prev, phase: 'EXECUTING' } : null);
       }, 2000);
+      return () => clearTimeout(t);
     } 
     else if (activePenalty.phase === 'EXECUTING') {
-      setTimeout(() => {
+      const t = setTimeout(() => {
         const isGoal = GoalAttributionService.checkShotSuccess(activePenalty.kicker, activePenalty.keeper, [], false, () => Math.random(), true);
         const finalResult = isGoal ? MatchEventType.PENALTY_SCORED : MatchEventType.PENALTY_MISSED;
         
@@ -265,6 +290,12 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
             } else {
               nextAwayScore++;
               newAwayGoals.push({ playerName: activePenalty.kicker.lastName, minute: prev.minute, isPenalty: true });
+            }
+          } else {
+            if (activePenalty.side === 'HOME') {
+              newHomeGoals.push({ playerName: activePenalty.kicker.lastName, minute: prev.minute, isPenalty: true, isMiss: true });
+            } else {
+              newAwayGoals.push({ playerName: activePenalty.kicker.lastName, minute: prev.minute, isPenalty: true, isMiss: true });
             }
           }
 
@@ -296,14 +327,55 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
           setTimeout(() => setIsCelebratingGoal(false), 3000);
         }
       }, 2500);
+      return () => clearTimeout(t);
     }
     else if (activePenalty.phase === 'RESULT') {
-      setTimeout(() => {
+      const t = setTimeout(() => {
         setActivePenalty(null);
         setMatchState(prev => prev ? { ...prev, isPausedForEvent: false } : null);
       }, 3000);
+      return () => clearTimeout(t);
     }
   }, [activePenalty?.phase, matchState, ctx, setMatchState]);
+
+  useEffect(() => {
+    if (!activeVAR) return;
+    if (activeVAR.phase === 'CHECKING') {
+      const timer = setTimeout(() => {
+        const verdict: 'GOAL' | 'NO_GOAL' = Math.floor(Math.random() * 2) === 0 ? 'NO_GOAL' : 'GOAL';
+        setActiveVAR(prev => prev ? { ...prev, phase: 'VERDICT', verdict } : null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+    if (activeVAR.phase === 'VERDICT' && activeVAR.verdict) {
+      const isVarHome = activeVAR.side === 'HOME';
+      setMatchState(prev => {
+        if (!prev) return prev;
+        const varLog: MatchLogEntry = activeVAR.verdict === 'NO_GOAL'
+          ? { id: `VAR_DISALLOWED_${activeVAR.minute}`, minute: activeVAR.minute, text: `🚫 VAR: Bramka ${activeVAR.scorerName} NIEUZNANA! SPALONY!`, type: MatchEventType.GENERIC, teamSide: activeVAR.side }
+          : { id: `VAR_CONFIRMED_${activeVAR.minute}`, minute: activeVAR.minute, text: `✅ VAR: Bramka ${activeVAR.scorerName} ZATWIERDZONA! Gol uznany.`, type: MatchEventType.GENERIC, teamSide: activeVAR.side };
+        if (activeVAR.verdict === 'NO_GOAL') {
+          const newHomeGoals = isVarHome
+            ? prev.homeGoals.map(g => g.playerName === activeVAR.scorerName && g.minute === activeVAR.minute && !g.varDisallowed ? { ...g, varDisallowed: true } : g)
+            : prev.homeGoals;
+          const newAwayGoals = !isVarHome
+            ? prev.awayGoals.map(g => g.playerName === activeVAR.scorerName && g.minute === activeVAR.minute && !g.varDisallowed ? { ...g, varDisallowed: true } : g)
+            : prev.awayGoals;
+          return {
+            ...prev,
+            homeScore: isVarHome ? prev.homeScore - 1 : prev.homeScore,
+            awayScore: !isVarHome ? prev.awayScore - 1 : prev.awayScore,
+            homeGoals: newHomeGoals,
+            awayGoals: newAwayGoals,
+            logs: [varLog, ...prev.logs]
+          };
+        }
+        return { ...prev, logs: [varLog, ...prev.logs] };
+      });
+      const closeTimer = setTimeout(() => setActiveVAR(null), 3000);
+      return () => clearTimeout(closeTimer);
+    }
+  }, [activeVAR?.phase, activeVAR?.verdict, setMatchState]);
 
   const handleTacticsClose = (newLineup: Lineup, subsCount: number, subsHistory: SubstitutionRecord[]) => {
     setMatchState(prev => {
@@ -325,7 +397,7 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
 
   useEffect(() => {
     if (!matchState || matchState.isPaused || matchState.isPausedForEvent || 
-        matchState.isFinished || matchState.isHalfTime || isTacticsOpen || isCelebratingGoal || !env || activePenalty) return;
+        matchState.isFinished || matchState.isHalfTime || isTacticsOpen || isCelebratingGoal || !env || activePenalty || activeVAR) return;
 
     const tickInterval = matchState.speed === 5 ? 120 
   : matchState.speed === 3.5 ? 200 
@@ -1074,7 +1146,22 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
         nextAwayLineup.startingXI = autoRemoveInjured(nextAwayLineup.startingXI, nextAwayInjuries, 'AWAY');
         updatedLogs = [...carriedOffLogs, ...updatedLogs];
 
-        if (goalTriggered) { setIsCelebratingGoal(true); setTimeout(() => setIsCelebratingGoal(false), 3500); }
+        if (goalTriggered) {
+          const lastGoal = activeSide === 'HOME' ? newHomeGoals[newHomeGoals.length - 1] : newAwayGoals[newAwayGoals.length - 1];
+          const canTriggerVAR = !lastGoal?.isPenalty;
+          if (canTriggerVAR) {
+            varDataRef.current = { side: activeSide, scorerName: lastGoal?.playerName || '', minute: nextMinute };
+          }
+          setIsCelebratingGoal(true);
+          setTimeout(() => {
+            setIsCelebratingGoal(false);
+            const vd = varDataRef.current;
+            if (vd && Math.random() < 0.2) {
+              setActiveVAR({ ...vd, phase: 'CHECKING' });
+            }
+            varDataRef.current = null;
+          }, 3500);
+        }
 
         const momentumUpdate = MomentumService.computeMomentum(ctx, { ...prev, minute: nextMinute, momentum: prev.momentum, homeLineup: nextHomeLineup, awayLineup: nextAwayLineup }, immediateEventType, activeSide, localHomeFatigue, localAwayFatigue);
 
@@ -1185,7 +1272,7 @@ return {
       });
     }, tickInterval);
     return () => clearInterval(interval);
-  }, [matchState?.isPaused, matchState?.isPausedForEvent, matchState?.isFinished, matchState?.isHalfTime, matchState?.speed, isCelebratingGoal, ctx, env, userSide, isTacticsOpen, activePenalty, hasMandatorySub, setMatchState]);
+  }, [matchState?.isPaused, matchState?.isPausedForEvent, matchState?.isFinished, matchState?.isHalfTime, matchState?.speed, isCelebratingGoal, ctx, env, userSide, isTacticsOpen, activePenalty, activeVAR, hasMandatorySub, setMatchState]);
 
  const handleFinishMatch = () => {
     if (!matchState || !ctx) return;
@@ -1256,11 +1343,11 @@ return {
     updatedPlayers[ctx.homeClub.id] = applyFatigueDebtToSquad(updatedPlayers[ctx.homeClub.id], playedIdsHome);
     updatedPlayers[ctx.awayClub.id] = applyFatigueDebtToSquad(updatedPlayers[ctx.awayClub.id], playedIdsAway);
 
-    matchState.homeGoals.forEach(g => {
+    matchState.homeGoals.filter(g => !g.varDisallowed).forEach(g => {
        const pFound = ctx.homePlayers.find(px => px.lastName === g.playerName);
        if (pFound) updatedPlayers = PlayerStatsService.applyGoal(updatedPlayers, pFound.id, g.assistantId);
     });
-    matchState.awayGoals.forEach(g => {
+    matchState.awayGoals.filter(g => !g.varDisallowed).forEach(g => {
        const pFound = ctx.awayPlayers.find(px => px.lastName === g.playerName);
        if (pFound) updatedPlayers = PlayerStatsService.applyGoal(updatedPlayers, pFound.id, g.assistantId);
     });
@@ -1278,7 +1365,9 @@ return {
           const days = isSev ? (14 + Math.floor(Math.random() * 30)) : (2 + Math.floor(Math.random() * 6));
           const type = isSev ? "Poważny uraz więzadeł" : "Stłuczenie mięśnia";
           
-       return {
+       const penalty = isSev ? (Math.floor(Math.random() * 31) + 60) : (Math.floor(Math.random() * 26) + 10);
+          const condAfterPenalty = Math.max(0, p.condition - penalty);
+          return {
             ...p,
             health: {
               status: HealthStatus.INJURED,
@@ -1287,10 +1376,11 @@ return {
                 daysRemaining: days, 
                 severity: sev,
                 injuryDate: currentDate.toISOString(), // -> tutaj wstaw kod
-                totalDays: days
+                totalDays: days,
+                conditionAtInjury: condAfterPenalty
               }
             },
-            condition: Math.max(0, p.condition - (isSev ? (Math.floor(Math.random() * 31) + 60) : (Math.floor(Math.random() * 26) + 10)))
+            condition: condAfterPenalty
           };
         }
         return p;
@@ -1306,24 +1396,15 @@ return {
           const matchCost = FinanceService.calculateMatchdayExpenses(c, isHome);
           const s = isHome ? matchState.homeScore : matchState.awayScore;
           const o = isHome ? matchState.awayScore : matchState.homeScore;
-          const pts = s > o ? 3 : (s === o ? 1 : 0);
-          
-          const resultChar: "W" | "R" | "P" = pts === 3 ? 'W' : (pts === 1 ? 'R' : 'P');
+
+          const resultChar: "W" | "R" | "P" = s > o ? 'W' : (s === o ? 'R' : 'P');
           const newForm = [...(c.stats.form || []), resultChar].slice(-5) as ("W" | "R" | "P")[];
 
           return {
             ...c, 
             budget: c.budget - matchCost,
             stats: {
-              ...c.stats, 
-              played: c.stats.played + 1, 
-              wins: c.stats.wins + (pts === 3 ? 1 : 0), 
-              draws: c.stats.draws + (pts === 1 ? 1 : 0), 
-              losses: c.stats.losses + (pts === 0 ? 1 : 0), 
-              goalsFor: c.stats.goalsFor + s, 
-              goalsAgainst: c.stats.goalsAgainst + o, 
-              goalDifference: c.stats.goalDifference + (s - o), 
-              points: c.stats.points + pts,
+              ...c.stats,
               form: newForm
             } 
           };
@@ -1334,13 +1415,17 @@ return {
 
     const updatedFixtures = simResult.updatedFixtures.map(f => f.id === ctx.fixture.id ? { ...f, status: 'FINISHED' as any, homeScore: matchState.homeScore, awayScore: matchState.awayScore } : f);
 
-    
+    const clBgResult = BackgroundMatchProcessorCL.processChampionsLeagueEvent(currentDate, userTeamId, updatedFixtures, clubs, sessionSeed);
 
     const timeline: MatchSummaryEvent[] = [];
     let hCounter = 0, aCounter = 0;
     [...matchState.logs].filter(l => [MatchEventType.GOAL, MatchEventType.YELLOW_CARD, MatchEventType.RED_CARD, MatchEventType.PENALTY_SCORED, MatchEventType.INJURY_LIGHT, MatchEventType.INJURY_SEVERE].includes(l.type)).sort((a, b) => a.minute - b.minute).forEach(l => {
-      if (l.type === MatchEventType.GOAL || l.type === MatchEventType.PENALTY_SCORED) { if (l.teamSide === 'HOME') hCounter++; else aCounter++; }
-      timeline.push({ minute: l.minute, type: l.type, playerName: l.playerName || '?', assistantName: l.type === MatchEventType.GOAL ? matchState[l.teamSide === 'HOME' ? 'homeGoals' : 'awayGoals'].find(g => g.playerName === l.playerName && g.minute === l.minute)?.assistantName : undefined, teamSide: l.teamSide!, scoreAtMoment: (l.type === MatchEventType.GOAL || l.type === MatchEventType.PENALTY_SCORED) ? `${hCounter}-${aCounter}` : undefined });
+      const goalEntry = (l.type === MatchEventType.GOAL)
+        ? matchState[l.teamSide === 'HOME' ? 'homeGoals' : 'awayGoals'].find(g => g.playerName === l.playerName && g.minute === l.minute)
+        : undefined;
+      const isVarDisallowed = goalEntry?.varDisallowed === true;
+      if ((l.type === MatchEventType.GOAL || l.type === MatchEventType.PENALTY_SCORED) && !isVarDisallowed) { if (l.teamSide === 'HOME') hCounter++; else aCounter++; }
+      timeline.push({ minute: l.minute, type: l.type, playerName: l.playerName || '?', assistantName: l.type === MatchEventType.GOAL ? goalEntry?.assistantName : undefined, teamSide: l.teamSide!, varDisallowed: isVarDisallowed, scoreAtMoment: (l.type === MatchEventType.GOAL || l.type === MatchEventType.PENALTY_SCORED) && !isVarDisallowed ? `${hCounter}-${aCounter}` : undefined });
     });
 
    // --- WARSTWA KALIBRACJI STATYSTYK (STAGE 1 PRO) ---
@@ -1458,7 +1543,7 @@ const calculateUnitRatings = (teamPlayers: Player[], playedIds: Set<string>, sid
 
 const summary: MatchSummary = {
       matchId: ctx.fixture.id, userTeamId: userTeamId!, homeClub: ctx.homeClub, awayClub: ctx.awayClub, 
-      homeScore: matchState.homeScore, awayScore: matchState.awayScore, homeGoals: matchState.homeGoals, awayGoals: matchState.awayGoals,
+      homeScore: matchState.homeScore, awayScore: matchState.awayScore, homeGoals: matchState.homeGoals.filter(g => !g.varDisallowed), awayGoals: matchState.awayGoals.filter(g => !g.varDisallowed),
       attendance: attendance,
       homeStats: { ...matchState.liveStats.home, fouls: calibHomeFouls, shots: calibHomeShots, corners: calibHomeCorners, yellowCards: Object.keys(matchState.playerYellowCards).filter(id => ctx.homePlayers.some(p => p.id === id)).length, redCards: matchState.sentOffIds.filter(id => ctx.homePlayers.some(p => p.id === id)).length, possession: Math.round(50 + ((matchState.momentumSum / (matchState.momentumTicks || 1)) * 0.4)) },
       awayStats: { ...matchState.liveStats.away, fouls: calibAwayFouls, shots: calibAwayShots, corners: calibAwayCorners, yellowCards: Object.keys(matchState.playerYellowCards).filter(id => ctx.awayPlayers.some(p => p.id === id)).length, redCards: matchState.sentOffIds.filter(id => ctx.awayPlayers.some(p => p.id === id)).length, possession: 100 - Math.round(50 + ((matchState.momentumSum / (matchState.momentumTicks || 1)) * 0.4)) },
@@ -1477,7 +1562,7 @@ const summary: MatchSummary = {
     applySimulationResult({ 
       ...simResult, 
       updatedClubs, 
-      updatedFixtures, 
+      updatedFixtures: clBgResult.updatedFixtures, 
       updatedPlayers, 
       roundResults: finalRoundResults, 
       seasonNumber, 
@@ -1527,7 +1612,7 @@ const summary: MatchSummary = {
 
     setLastMatchSummary(summary); 
     setMatchState(null);
-    navigateTo(ViewState.MATCH_POST);
+    navigateTo(ViewState.POST_MATCH_CL_STUDIO);
   };
 
   if (!matchState || !ctx || !env || !kitColors) return null;
@@ -1545,8 +1630,11 @@ const summary: MatchSummary = {
           const nameToDisplay = g.playerName.includes('.') ? g.playerName : g.playerName; 
           // KONIEC WSTAWKI
           return (
-            <span key={`g-${i}`} className={`text-[9px] font-bold flex items-center gap-1 ${g.isMiss ? 'text-rose-500' : 'text-white'}`}>
-              {g.isMiss ? '❌' : '⚽'} {nameToDisplay} ({g.minute}'{g.isPenalty ? ' k.' : ''}{g.isMiss ? ' - pudło' : ''})
+            <span key={`g-${i}`} className={`text-[9px] font-bold flex items-center gap-1 ${g.isMiss ? 'text-rose-500' : g.varDisallowed ? 'text-slate-500' : 'text-white'}`}>
+              {g.isMiss ? '❌' : '⚽'}{' '}
+              {g.varDisallowed
+                ? <><s>{nameToDisplay} ({g.minute}'{g.isPenalty ? ' k.' : ''})</s> (VAR)</>
+                : `${nameToDisplay} (${g.minute}'${g.isPenalty ? ' k.' : ''}${g.isMiss ? '' : ''})`}
             </span>
           );
         })}
@@ -1747,6 +1835,35 @@ const SquadList = ({ side, lineup, players, fatigue, injs, subsHistory }: { side
                  </div>
               </div>
            </div>
+        </div>
+      )}
+
+      {activeVAR && (
+        <div className="fixed inset-0 z-[600] bg-black/80 backdrop-blur-xl flex items-center justify-center animate-fade-in">
+          <div className="bg-slate-900/80 border border-white/10 rounded-[40px] p-12 flex flex-col items-center gap-6 shadow-[0_50px_100px_rgba(0,0,0,0.8)]">
+            {activeVAR.phase === 'CHECKING' && (
+              <>
+                <div className="text-7xl animate-bounce">📺</div>
+                <h2 className="text-5xl font-black italic text-white uppercase tracking-tighter">VAR</h2>
+                <p className="text-xl font-bold text-slate-300 uppercase tracking-widest text-center">Sędzia biegnie do monitora</p>
+                <div className="w-16 h-16 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mt-2" />
+              </>
+            )}
+            {activeVAR.phase === 'VERDICT' && activeVAR.verdict === 'GOAL' && (
+              <>
+                <div className="text-8xl">✅</div>
+                <h2 className="text-6xl font-black italic text-emerald-400 uppercase tracking-tighter drop-shadow-[0_0_40px_rgba(52,211,153,0.6)]">BRAMKA!</h2>
+                <p className="text-lg font-bold text-slate-300 uppercase tracking-widest">VAR: Gol uznany</p>
+              </>
+            )}
+            {activeVAR.phase === 'VERDICT' && activeVAR.verdict === 'NO_GOAL' && (
+              <>
+                <div className="text-8xl animate-bounce">🚫</div>
+                <h2 className="text-6xl font-black italic text-red-500 uppercase tracking-tighter drop-shadow-[0_0_40px_rgba(239,68,68,0.6)]">SPALONY!</h2>
+                <p className="text-lg font-bold text-slate-300 uppercase tracking-widest">VAR: Bramka nieuznana</p>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -2112,6 +2229,12 @@ const hasScored = matchState.homeGoals.some(g => g.playerName === p.lastName && 
   {matchState.isFinished ? (
     <div className="flex gap-3 justify-center py-3 px-8 bg-white/5 border border-white/10 rounded-[28px] shadow-2xl">
       <button
+        onClick={() => setShowCommentHistory(!showCommentHistory)}
+        className="min-w-[60px] py-3 px-6 rounded-xl bg-white/5 border border-white/10 text-slate-300 font-black italic uppercase tracking-widest text-xs hover:bg-white/10 hover:text-white transition-all hover:scale-105 active:scale-95 shadow-xl flex items-center justify-center gap-2"
+      >
+        PRZEBIEG MECZU
+      </button>
+      <button
         onClick={handleFinishMatch}
         className="min-w-[160px] py-3 px-10 rounded-2xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 font-black italic uppercase tracking-tighter text-base transition-all hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(16,185,129,0.2)] hover:bg-emerald-600/30 flex items-center justify-center gap-3 group"
       >
@@ -2326,7 +2449,7 @@ const hasScored = matchState.homeGoals.some(g => g.playerName === p.lastName && 
         <div className="fixed inset-0 z-[990] backdrop-blur-md bg-black/40 pointer-events-none" />
       )}
 
-      <MatchTacticsModal isOpen={isTacticsOpen} onClose={handleTacticsClose} club={userSide === 'HOME' ? ctx.homeClub : ctx.awayClub} lineup={userSide === 'HOME' ? matchState.homeLineup : matchState.awayLineup} players={userSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers} fatigue={userSide === 'HOME' ? matchState.homeFatigue : matchState.awayFatigue} subsCount={userSide === 'HOME' ? matchState.subsCountHome : matchState.subsCountAway} subsHistory={userSide === 'HOME' ? matchState.homeSubsHistory : matchState.awaySubsHistory} minute={matchState.minute} sentOffIds={matchState.sentOffIds} />
+      <MatchTacticsModal isOpen={isTacticsOpen} onClose={handleTacticsClose} club={userSide === 'HOME' ? ctx.homeClub : ctx.awayClub} lineup={userSide === 'HOME' ? matchState.homeLineup : matchState.awayLineup} players={userSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers} fatigue={userSide === 'HOME' ? matchState.homeFatigue : matchState.awayFatigue} subsCount={userSide === 'HOME' ? matchState.subsCountHome : matchState.subsCountAway} subsHistory={userSide === 'HOME' ? matchState.homeSubsHistory : matchState.awaySubsHistory} minute={matchState.minute} sentOffIds={matchState.sentOffIds} injs={userSide === 'HOME' ? matchState.homeInjuries : matchState.awayInjuries} />
       <style>{`
         @keyframes shine { from { left: -150%; } to { left: 150%; } }
         .animate-shine { animation: shine 3s infinite linear; }

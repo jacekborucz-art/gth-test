@@ -28,6 +28,7 @@ import { PolishCupDrawService } from '../services/PolishCupDrawService';
 import { CLDrawService } from '../services/CLDrawService';
 import { SuperCupService } from '../services/SuperCupService';
 import { CoachService } from '../services/CoachService';
+import { RefereeService } from '../services/RefereeService';
 import { FreeAgentService } from '../services/FreeAgentService';
 import { AiContractService } from '@/services/AiContractService';
 import { BackgroundMatchProcessorCL } from '../services/BackgroundMatchProcessorCL';
@@ -470,6 +471,8 @@ if (userTeamId) {
         setMessages(prev => [...newEndMails, ...prev]);
       }
     }
+    RefereeService.applyEndOfSeasonAdjustments();
+    RefereeService.resetSeasonStats();
     setRoundResults({});
     sentMailIdsRef.current = new Set();
     lastProcessedLeagueDateRef.current = null;
@@ -604,14 +607,22 @@ setMessages([welcomeMail, fanMail]);
   }, [currentDate, userTeamId, allFixtures, clubs, players, lineups, sessionSeed]);
 
   const processCLMatchDay = useCallback(() => {
+    // null zamiast userTeamId — gracz kliknął "Symuluj", więc symulujemy WSZYSTKIE mecze
+    // łącznie z drużyną gracza (brak trybu live dla CL)
     const clResult = BackgroundMatchProcessorCL.processChampionsLeagueEvent(
-      currentDate, userTeamId, allFixtures, clubs, sessionSeed
+      currentDate, null, allFixtures, clubs, sessionSeed
     );
     setGlobalFixtures(prev => {
       const clMap = new Map(clResult.updatedFixtures.map(f => [f.id, f]));
       return prev.map(f => {
         const clF = clMap.get(f.id);
-        if (clF && (clF.status !== f.status || clF.homeScore !== f.homeScore || clF.awayScore !== f.awayScore)) {
+        if (clF && (
+          clF.status !== f.status ||
+          clF.homeScore !== f.homeScore ||
+          clF.awayScore !== f.awayScore ||
+          clF.homePenaltyScore !== f.homePenaltyScore ||
+          clF.awayPenaltyScore !== f.awayPenaltyScore
+        )) {
           return clF;
         }
         return f;
@@ -929,10 +940,12 @@ setMessages([welcomeMail, fanMail]);
           const finalAlreadyExists = allFixtures.some(f => f.leagueId === CompetitionType.CL_FINAL);
           if (!finalAlreadyExists) {
             const sfWinners = CLDrawService.getSFWinners(allFixtures);
-            if (sfWinners.length === 2) {
+            const sfPool2 = CLDrawService.getSFParticipants(allFixtures);
+            const safeSFWinners2 = CLDrawService.guaranteeWinners(sfWinners, sfPool2, 2);
+            if (safeSFWinners2.length === 2) {
               const finalDate = new Date(dateToProcess.getFullYear(), 4, 30);
               const finalFixture = CLDrawService.generateFinalFixture(
-                sfWinners[0], sfWinners[1], finalDate, finalDate.getFullYear()
+                safeSFWinners2[0], safeSFWinners2[1], finalDate, finalDate.getFullYear()
               );
               setGlobalFixtures(prev => [...prev, finalFixture]);
             }
@@ -965,10 +978,12 @@ setMessages([welcomeMail, fanMail]);
               const finalAlreadyExists = allFixtures.some(f => f.leagueId === CompetitionType.CL_FINAL);
               if (!finalAlreadyExists) {
                 const sfWinners = CLDrawService.getSFWinners(allFixtures);
-                if (sfWinners.length === 2) {
+                const sfPool = CLDrawService.getSFParticipants(allFixtures);
+                const safeSFWinners = CLDrawService.guaranteeWinners(sfWinners, sfPool, 2);
+                if (safeSFWinners.length === 2) {
                   const finalDate = new Date(dateToProcess.getFullYear(), 4, 30);
                   const finalFixture = CLDrawService.generateFinalFixture(
-                    sfWinners[0], sfWinners[1], finalDate, finalDate.getFullYear()
+                    safeSFWinners[0], safeSFWinners[1], finalDate, finalDate.getFullYear()
                   );
                   setGlobalFixtures(prev => [...prev, finalFixture]);
                 }
@@ -1177,7 +1192,7 @@ setMessages([welcomeMail, fanMail]);
     DebugLoggerService.log('GUARD', `advanceDay PRZECHODZI dla: ${dateKey}`);
     lastProcessedLeagueDateRef.current = dateKey;
 
-    const simulation = BackgroundMatchProcessor.processLeagueEvent(dateToProcess, userTeamId, allFixtures, clubs, players, lineups, seasonNumber, coaches);
+    const simulation = BackgroundMatchProcessor.processLeagueEvent(dateToProcess, userTeamId, allFixtures, clubs, players, lineups, seasonNumber, coaches, sessionSeed);
     
     // 2. Obliczanie regeneracji kondycji i urazów
     const diffTime = Math.abs(dateToProcess.getTime() - lastRecoveryDate.getTime());
@@ -1219,7 +1234,13 @@ const finalResult: SimulationOutput = {
       const clMap = new Map(clResult.updatedFixtures.map(f => [f.id, f]));
       return prev.map(f => {
         const clF = clMap.get(f.id);
-        if (clF && (clF.status !== f.status || clF.homeScore !== f.homeScore || clF.awayScore !== f.awayScore)) {
+        if (clF && (
+          clF.status !== f.status ||
+          clF.homeScore !== f.homeScore ||
+          clF.awayScore !== f.awayScore ||
+          clF.homePenaltyScore !== f.homePenaltyScore ||
+          clF.awayPenaltyScore !== f.awayPenaltyScore
+        )) {
           return clF;
         }
         return f;
@@ -1488,8 +1509,10 @@ const finalResult: SimulationOutput = {
     const fixtureYear = drawYear;
 
     const r16Winners = CLDrawService.getR16Winners(allFixtures);
+    const r16Pool = CLDrawService.getR16Participants(allFixtures);
+    const safeR16Winners = CLDrawService.guaranteeWinners(r16Winners, r16Pool, 8);
     const qfFixtures = CLDrawService.generateQFFixtures(
-      r16Winners, leg1Date, leg2Date, fixtureYear, sessionSeed,
+      safeR16Winners, leg1Date, leg2Date, fixtureYear, sessionSeed,
     );
     setGlobalFixtures(prev => [...prev, ...qfFixtures]);
 
@@ -1527,8 +1550,10 @@ const finalResult: SimulationOutput = {
     const fixtureYear = drawYear;
 
     const qfWinners = CLDrawService.getQFWinners(allFixtures);
+    const qfPool = CLDrawService.getQFParticipants(allFixtures);
+    const safeQFWinners = CLDrawService.guaranteeWinners(qfWinners, qfPool, 4);
     const sfFixtures = CLDrawService.generateSFFixtures(
-      qfWinners, leg1Date, leg2Date, fixtureYear, sessionSeed,
+      safeQFWinners, leg1Date, leg2Date, fixtureYear, sessionSeed,
     );
     setGlobalFixtures(prev => [...prev, ...sfFixtures]);
 

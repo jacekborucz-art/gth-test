@@ -68,7 +68,7 @@ export const PreMatchStudioView: React.FC = () => {
       if (!aLineup) aLineup = LineupService.autoPickLineup(away.id, aPlayers);
       
       const studioData = await PreMatchStudioService.prepareStudioData(
-        fixture, home, away, hLineup, aLineup, hPlayers, aPlayers
+        fixture, home, away, hLineup, aLineup, hPlayers, aPlayers, clubs
       );
       setData(studioData);
       setLoading(false);

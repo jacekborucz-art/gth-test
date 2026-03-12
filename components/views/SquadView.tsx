@@ -35,9 +35,9 @@ export const SquadView: React.FC = () => {
             alert("Ten zawodnik jest zawieszony i nie może zostać wybrany do składu meczowego.");
             return;
          }
-         // Sprawdź poważne kontuzje
-         if (clickedPlayer.health.status === HealthStatus.INJURED && clickedPlayer.health.injury?.severity === InjurySeverity.SEVERE) {
-            alert("Ten zawodnik jest poważnie kontuzjowany i nie jest zdolny do gry.");
+         // Sprawdź kontuzje (SEVERE lub daysRemaining > 2)
+         if (clickedPlayer.health.status === HealthStatus.INJURED && (clickedPlayer.health.injury?.severity === InjurySeverity.SEVERE || (clickedPlayer.health.injury?.daysRemaining ?? 0) > 2)) {
+            alert("Ten zawodnik jest kontuzjowany i nie może zostać wybrany do składu meczowego.");
             return;
          }
       }
@@ -52,8 +52,8 @@ export const SquadView: React.FC = () => {
             setSelectedSlot(null);
             return;
          }
-         if (sourcePlayer.health.status === HealthStatus.INJURED && sourcePlayer.health.injury?.severity === InjurySeverity.SEVERE) {
-            alert("Nie można wstawić poważnie kontuzjowanego gracza do składu.");
+         if (sourcePlayer.health.status === HealthStatus.INJURED && (sourcePlayer.health.injury?.severity === InjurySeverity.SEVERE || (sourcePlayer.health.injury?.daysRemaining ?? 0) > 2)) {
+            alert("Nie można wstawić kontuzjowanego gracza do składu.");
             setSelectedSlot(null);
             return;
          }
@@ -167,6 +167,15 @@ export const SquadView: React.FC = () => {
               {player.isOnTransferList && (
                 <span className="px-2 py-0.5 bg-amber-500/20 text-amber-500 text-[8px] font-black rounded border border-amber-500/30 shadow-sm shrink-0 leading-none">
                      LISTA
+                </span>
+              )}
+              {/* Badge zainteresowania transferowego — pojawia się gdy ≥1 klub AI obserwuje zawodnika */}
+              {player.interestedClubs && player.interestedClubs.length > 0 && (
+                <span
+                  title={`Zainteresowane kluby:\n${player.interestedClubs.map(id => clubs.find(c => c.id === id)?.name ?? id).join('\n')}`}
+                  className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-[8px] font-black rounded border border-blue-500/30 shadow-sm shrink-0 leading-none cursor-help"
+                >
+                  INT
                 </span>
               )}
            </div>

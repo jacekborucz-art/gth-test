@@ -265,6 +265,48 @@ const [showHistory, setShowHistory] = React.useState(false);
               </div>
            </div>
 
+           {/* ── ZAINTERESOWANIE TRANSFEROWE ────────────────────────────────────
+               Wyświetla kluby AI, które aktualnie obserwują tego zawodnika.
+               Lista jest aktualizowana raz na miesiąc przez AiScoutingService.
+               W przyszłości: kliknięcie klubu → złożenie/odrzucenie oferty transferowej.
+           ────────────────────────────────────────────────────────────────────── */}
+           {player.interestedClubs && player.interestedClubs.length > 0 && (
+             <div className="flex flex-col gap-3">
+               <h3 className="text-[10px] font-black text-violet-400 uppercase tracking-[0.4em] mb-1 flex items-center gap-3">
+                 <span className="w-8 h-px bg-violet-400/30" /> Zainteresowanie Transferowe
+               </h3>
+               <div className="bg-slate-900/40 p-4 rounded-[24px] border border-violet-500/20">
+                 <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-3">
+                   Kluby obserwujące zawodnika ({player.interestedClubs.length})
+                 </p>
+                 <div className="flex flex-wrap gap-2">
+                   {player.interestedClubs.map(clubId => {
+                     const interestedClub = clubs.find(c => c.id === clubId);
+                     if (!interestedClub) return null;
+                     return (
+                       <div
+                         key={clubId}
+                         className="flex items-center gap-2 px-3 py-1.5 rounded-[12px] bg-white/5 border border-white/10 hover:border-violet-500/30 transition-all"
+                         // TODO: Po implementacji ofert transferowych — wnawigateTo(ViewState.TRANSFER_OFFER) lub podobne
+                       >
+                         {/* Mini podgląd barw klubu */}
+                         <div className="w-5 h-5 rounded-md overflow-hidden border border-white/10 flex-shrink-0 flex flex-col">
+                           <div className="flex-1" style={{ backgroundColor: interestedClub.colorsHex[0] }} />
+                           <div className="flex-1" style={{ backgroundColor: interestedClub.colorsHex[1] || interestedClub.colorsHex[0] }} />
+                         </div>
+                         <span className="text-[9px] font-black text-slate-300 uppercase tracking-tight">
+                           {interestedClub.shortName}
+                         </span>
+                         {/* Placeholder na przyszły przycisk akcji (oferta transferowa) */}
+                         <span className="text-[8px] text-violet-400 opacity-60">👁️</span>
+                       </div>
+                     );
+                   })}
+                 </div>
+               </div>
+             </div>
+           )}
+
            <div className="flex flex-col gap-3">
               <h3 className="text-[10px] font-black text-amber-400 uppercase tracking-[0.4em] mb-1 flex items-center gap-3">
                  <span className="w-8 h-px bg-amber-400/30" /> Kontrakt i Wynagrodzenie
