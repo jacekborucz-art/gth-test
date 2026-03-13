@@ -576,10 +576,10 @@ useEffect(() => {
         let nextAwayInjuries = { ...prev.awayInjuries };
         let nextMomentum = prev.momentum;
         // === BALANS 2025 – stałe do łatwego tuningu ===
-        const RED_CARD_CHANCE        = 0.00072;  // ~0.065 czerwonych/mecz
-        const SEVERE_INJURY_CHANCE   = 0.0004;   // (-20%)
-        const LIGHT_INJURY_CHANCE    = 0.0080;
-        const YELLOW_CARD_CHANCE     = 0.035;    // ~3.15 żółtych/mecz (normal)
+        const RED_CARD_CHANCE        = 0.00066;  // ~0.065 czerwonych/mecz
+        const SEVERE_INJURY_CHANCE   = 0.0002;   // (-20%)
+        const LIGHT_INJURY_CHANCE    = 0.0060;
+        const YELLOW_CARD_CHANCE     = 0.025;    // ~3.15 żółtych/mecz (normal)
         const BASE_EVENT_THRESHOLD   = 0.42;
         const BASE_GOAL_THRESHOLD    = 0.065;
         const MOMENTUM_INERTIA       = 0.88;

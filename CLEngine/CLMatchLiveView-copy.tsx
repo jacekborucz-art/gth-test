@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useGame } from '../context/GameContext';
 import { 
@@ -69,60 +70,6 @@ const CL_LEAGUE_IDS: CompetitionType[] = [
   CompetitionType.CL_QF, CompetitionType.CL_QF_RETURN,
   CompetitionType.CL_SF, CompetitionType.CL_SF_RETURN,
 ];
-
-const RETURN_LEG_TYPES: CompetitionType[] = [
-  CompetitionType.CL_R1Q_RETURN,
-  CompetitionType.CL_R2Q_RETURN,
-  CompetitionType.CL_R16_RETURN,
-  CompetitionType.CL_QF_RETURN,
-  CompetitionType.CL_SF_RETURN,
-];
-
-const FIRST_LEG_MAP: Partial<Record<CompetitionType, CompetitionType>> = {
-  [CompetitionType.CL_R1Q_RETURN]: CompetitionType.CL_R1Q,
-  [CompetitionType.CL_R2Q_RETURN]: CompetitionType.CL_R2Q,
-  [CompetitionType.CL_R16_RETURN]: CompetitionType.CL_R16,
-  [CompetitionType.CL_QF_RETURN]: CompetitionType.CL_QF,
-  [CompetitionType.CL_SF_RETURN]: CompetitionType.CL_SF,
-};
-
-const checkShootoutWinner = (seq: { side: 'HOME' | 'AWAY', result: 'SCORED' | 'MISSED' }[]): 'HOME' | 'AWAY' | null => {
-  const homeShots = seq.filter((_, i) => i % 2 === 0);
-  const awayShots = seq.filter((_, i) => i % 2 === 1);
-  const homeScored = homeShots.filter(s => s.result === 'SCORED').length;
-  const awayScored = awayShots.filter(s => s.result === 'SCORED').length;
-  const homeTotal = homeShots.length;
-  const awayTotal = awayShots.length;
-  const roundsDone = Math.min(homeTotal, awayTotal);
-
-  if (roundsDone < 5) {
-    const remainingHome = 5 - homeTotal;
-    const remainingAway = 5 - awayTotal;
-    if (homeScored > awayScored + remainingAway) return 'HOME';
-    if (awayScored > homeScored + remainingHome) return 'AWAY';
-    return null;
-  }
-
-  if (homeTotal >= 5 && awayTotal >= 5) {
-    if (homeScored !== awayScored) return homeScored > awayScored ? 'HOME' : 'AWAY';
-    const extraRoundsCompleted = Math.floor((seq.length - 10) / 2);
-    for (let r = 0; r <= extraRoundsCompleted; r++) {
-      const hIdx = 10 + r * 2;
-      const aIdx = 11 + r * 2;
-      if (hIdx < seq.length && aIdx < seq.length) {
-        const hR = seq[hIdx].result;
-        const aR = seq[aIdx].result;
-        if (hR === 'SCORED' && aR === 'MISSED') return 'HOME';
-        if (aR === 'SCORED' && hR === 'MISSED') return 'AWAY';
-      } else if (hIdx < seq.length && aIdx >= seq.length) {
-        return null;
-      }
-    }
-    return null;
-  }
-
-  return null;
-};
 
 const BigJerseyIcon = ({ primary, secondary, size = "w-16 h-16" }: { primary: string, secondary: string, size?: string }) => (
   <div className="relative group">
@@ -215,21 +162,6 @@ export const CLMatchLiveView = () => {
     if (!ctx || !userTeamId) return 'HOME';
     return ctx.homeClub.id === userTeamId ? 'HOME' : 'AWAY';
   }, [ctx, userTeamId]);
-
-  const firstLegInfo = useMemo(() => {
-    if (!ctx) return null;
-    const comp = ctx.fixture.leagueId as CompetitionType;
-    if (!RETURN_LEG_TYPES.includes(comp)) return null;
-    const firstLegType = FIRST_LEG_MAP[comp];
-    if (!firstLegType) return null;
-    const teamIds = new Set([ctx.homeClub.id, ctx.awayClub.id]);
-    return fixtures.find(f =>
-      f.leagueId === firstLegType &&
-      f.status === 'FINISHED' as any &&
-      teamIds.has(f.homeTeamId) &&
-      teamIds.has(f.awayTeamId)
-    ) ?? null;
-  }, [ctx, fixtures]);
 
 const isPausedForSevereInjury = useMemo(() => {
     if (!matchState || !matchState.isPaused) return false;
@@ -325,8 +257,6 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
   const getActionLabel = () => {
     if (!matchState) return "";
     if (hasMandatorySub) return "WYMAGANA ZMIANA";
-    if (matchState.isHalfTime && matchState.period === 3) return "DOGRYWKA";
-    if (matchState.isHalfTime && matchState.period === 4) return "II POŁ. DOG.";
     if (matchState.isHalfTime) return "II POŁOWA";
     return matchState.isPaused ? "START" : "PAUZA";
   };
@@ -349,24 +279,6 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
 
         setMatchState(prev => {
           if (!prev) return prev;
-
-          if (prev.isPenalties) {
-            const newSeq = [...(prev.penaltySequence || []), { side: activePenalty.side, result: isGoal ? 'SCORED' as const : 'MISSED' as const }];
-            const newHomePen = (prev.homePenaltyScore ?? 0) + (isGoal && activePenalty.side === 'HOME' ? 1 : 0);
-            const newAwayPen = (prev.awayPenaltyScore ?? 0) + (isGoal && activePenalty.side === 'AWAY' ? 1 : 0);
-            const penPool = MATCH_COMMENTARY_DB[finalResult] || ["Karny..."];
-            const penComment = penPool[Math.floor(Math.random() * penPool.length)].replace("{Nazwisko}", activePenalty.kicker.lastName);
-            const penLog: MatchLogEntry = {
-              id: `PEN_SHOOT_${newSeq.length}_${Math.random()}`,
-              minute: prev.minute,
-              text: isGoal ? `⚽ ${penComment}` : `❌ ${penComment}`,
-              type: finalResult,
-              teamSide: activePenalty.side,
-              playerName: activePenalty.kicker.lastName
-            };
-            return { ...prev, homePenaltyScore: newHomePen, awayPenaltyScore: newAwayPen, penaltySequence: newSeq, logs: [penLog, ...prev.logs] };
-          }
-
           let nextHomeScore = prev.homeScore;
           let nextAwayScore = prev.awayScore;
           const newHomeGoals = [...prev.homeGoals];
@@ -428,42 +340,6 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
   }, [activePenalty?.phase, matchState, ctx, setMatchState]);
 
   useEffect(() => {
-    if (!matchState?.isPenalties || activePenalty || !ctx || matchState.isFinished) return;
-
-    const seq = matchState.penaltySequence || [];
-    const winner = checkShootoutWinner(seq);
-
-    if (winner !== null) {
-      setMatchState(prev => prev ? { ...prev, isFinished: true, isPenalties: false } : null);
-      return;
-    }
-
-    const nextShotIdx = seq.length;
-    const side: 'HOME' | 'AWAY' = nextShotIdx % 2 === 0 ? 'HOME' : 'AWAY';
-
-    const t = setTimeout(() => {
-      const kickerTeam = side === 'HOME' ? ctx.homePlayers : ctx.awayPlayers;
-      const keeperTeam = side === 'HOME' ? ctx.awayPlayers : ctx.homePlayers;
-      const kickerLineup = side === 'HOME' ? matchState.homeLineup.startingXI : matchState.awayLineup.startingXI;
-      const keeperLineup = side === 'HOME' ? matchState.awayLineup.startingXI : matchState.homeLineup.startingXI;
-      const kickerXI = kickerLineup.filter((id): id is string => id !== null);
-      const keeper = keeperTeam.find(p => p.id === keeperLineup[0]) || keeperTeam[0];
-      const kickerCandidates = kickerXI.filter(id => {
-        const p = kickerTeam.find(px => px.id === id);
-        return p && p.position !== 'GK';
-      });
-      if (kickerCandidates.length === 0) return;
-      const rotIdx = seq.filter((_, i) => i % 2 === (side === 'HOME' ? 0 : 1)).length;
-      const kickerId = kickerCandidates[rotIdx % kickerCandidates.length];
-      const kicker = kickerTeam.find(p => p.id === kickerId);
-      if (!kicker || !keeper) return;
-      setActivePenalty({ side, kicker, keeper, phase: 'AWARDED' });
-    }, nextShotIdx === 0 ? 1500 : 2000);
-
-    return () => clearTimeout(t);
-  }, [matchState?.isPenalties, matchState?.penaltySequence?.length, matchState?.isFinished, activePenalty, ctx, setMatchState]);
-
-  useEffect(() => {
     if (!activeVAR) return;
     if (activeVAR.phase === 'CHECKING') {
       const timer = setTimeout(() => {
@@ -522,7 +398,7 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
 
   useEffect(() => {
     if (!matchState || matchState.isPaused || matchState.isPausedForEvent || 
-        matchState.isFinished || matchState.isHalfTime || matchState.isPenalties || isTacticsOpen || isCelebratingGoal || !env || activePenalty || activeVAR) return;
+        matchState.isFinished || matchState.isHalfTime || isTacticsOpen || isCelebratingGoal || !env || activePenalty || activeVAR) return;
 
     const tickInterval = matchState.speed === 5 ? 120 
   : matchState.speed === 3.5 ? 200 
@@ -544,40 +420,12 @@ const nextMomentumSum = prev.momentumSum + prev.momentum;
             currentAddedTime = Math.floor(seededRng(currentSeed, 45, 1) * 4) + 1;
         else if (prev.period === 2 && prev.minute === 90 && currentAddedTime === 0) 
             currentAddedTime = Math.floor(seededRng(currentSeed, 90, 2) * 5) + 2;
-        else if (prev.period === 3 && prev.minute === 105 && currentAddedTime === 0)
-            currentAddedTime = Math.floor(seededRng(currentSeed, 105, 3) * 2) + 1;
-        else if (prev.period === 4 && prev.minute === 120 && currentAddedTime === 0)
-            currentAddedTime = Math.floor(seededRng(currentSeed, 120, 4) * 2) + 1;
 
-        const limit = prev.period === 1 ? (45 + currentAddedTime)
-          : prev.period === 2 ? (90 + currentAddedTime)
-          : prev.period === 3 ? (105 + currentAddedTime)
-          : (120 + currentAddedTime);
+        const limit = prev.period === 1 ? (45 + currentAddedTime) : (90 + currentAddedTime);
         
         if (nextMinute > limit) {
-           const isReturnLeg = firstLegInfo !== null;
-           let needsET = false;
-           let needsPens = false;
-           if (isReturnLeg && prev.period === 2) {
-             const fl = firstLegInfo!;
-             const flHomeGoals = fl.homeTeamId === ctx.homeClub.id ? (fl.homeScore ?? 0) : (fl.awayScore ?? 0);
-             const flAwayGoals = fl.awayTeamId === ctx.awayClub.id ? (fl.awayScore ?? 0) : (fl.homeScore ?? 0);
-             const aggHome = flHomeGoals + prev.homeScore;
-             const aggAway = flAwayGoals + prev.awayScore;
-             needsET = aggHome === aggAway;
-           }
-           if (isReturnLeg && prev.period === 4) {
-             const fl = firstLegInfo!;
-             const flHomeGoals = fl.homeTeamId === ctx.homeClub.id ? (fl.homeScore ?? 0) : (fl.awayScore ?? 0);
-             const flAwayGoals = fl.awayTeamId === ctx.awayClub.id ? (fl.awayScore ?? 0) : (fl.homeScore ?? 0);
-             const aggHome = flHomeGoals + prev.homeScore;
-             const aggAway = flAwayGoals + prev.awayScore;
-             needsPens = aggHome === aggAway;
-           }
-           const logText = (prev.period === 1 || prev.period === 3) ? "Przerwa w grze."
-             : needsET ? "Remis w dwumeczu! Dogrywka!"
-             : needsPens ? "Remis po dogrywce! Rzuty karne!"
-             : "Sędzia kończy mecz!";
+           const isFT = prev.period === 2;
+           const logText = isFT ? "Sędzia kończy mecz!" : "Przerwa w grze.";
            const newLog: MatchLogEntry = { id: `PERIOD_END_${prev.period}`, minute: prev.minute, text: logText, type: MatchEventType.GENERIC };
            
 
@@ -619,11 +467,10 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
            let updatedLogs = [newLog, ...prev.logs];
 
            // --- HALFTIME AI DECISIONS ---
-           if (prev.period === 1 || prev.period === 3) {
-              const htMinute = prev.period === 1 ? 45 : 105;
+           if (!isFT) {
               const aiSide: 'HOME' | 'AWAY' = userSide === 'HOME' ? 'AWAY' : 'HOME';
               const decision = AiMatchDecisionService.makeDecisions(
-                { ...prev, minute: htMinute }, 
+                { ...prev, minute: 45 }, 
                 ctx, aiSide, false, true
               );
               
@@ -646,40 +493,24 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
               if (decision.lastAiActionMinute !== undefined) nextLastAiActionMinute = decision.lastAiActionMinute;
               if (decision.logs) {
                  decision.logs.forEach(l => {
-                    updatedLogs = [{ id: `AI_HT_${Math.random()}`, minute: htMinute, text: l, type: MatchEventType.GENERIC }, ...updatedLogs];
+                    updatedLogs = [{ id: `AI_HT_${Math.random()}`, minute: 45, text: l, type: MatchEventType.GENERIC }, ...updatedLogs];
 
 
                           
                  });
               }
              }
- const recoveredHomeFatigue = (prev.period === 1 || prev.period === 3) ? applyHalftimeRegen(prev.homeFatigue, ctx.homePlayers) : prev.homeFatigue;
-           const recoveredAwayFatigue = (prev.period === 1 || prev.period === 3) ? applyHalftimeRegen(prev.awayFatigue, ctx.awayPlayers) : prev.awayFatigue;
-           const baseReturn = {
-              ...prev,
+ const recoveredHomeFatigue = !isFT ? applyHalftimeRegen(prev.homeFatigue, ctx.homePlayers) : prev.homeFatigue;
+           const recoveredAwayFatigue = !isFT ? applyHalftimeRegen(prev.awayFatigue, ctx.awayPlayers) : prev.awayFatigue;
+           return { 
+              ...prev, 
               homeLineup: nextHomeLineup, awayLineup: nextAwayLineup,
-              homeFatigue: recoveredHomeFatigue, awayFatigue: recoveredAwayFatigue,
+              homeFatigue: recoveredHomeFatigue, awayFatigue: recoveredAwayFatigue, // Aktualizacja kondycji
               subsCountHome: nextSubsCountHome, subsCountAway: nextSubsCountAway,
               homeSubsHistory: nextHomeSubsHistory, awaySubsHistory: nextAwaySubsHistory,
               lastAiActionMinute: nextLastAiActionMinute,
-              isPaused: true, logs: updatedLogs
+              isHalfTime: !isFT, isFinished: isFT, isPaused: true, addedTime: currentAddedTime, logs: updatedLogs
            };
-           if (prev.period === 1) {
-             return { ...baseReturn, isHalfTime: true, isFinished: false, addedTime: 0, period: 2 as MatchLiveState['period'], minute: 45 };
-           }
-           if (prev.period === 2 && needsET) {
-             return { ...baseReturn, isHalfTime: true, isFinished: false, isExtraTime: true, addedTime: 0, period: 3 as MatchLiveState['period'], minute: 90 };
-           }
-           if (prev.period === 2) {
-             return { ...baseReturn, isHalfTime: false, isFinished: true, addedTime: currentAddedTime };
-           }
-           if (prev.period === 3) {
-             return { ...baseReturn, isHalfTime: true, isFinished: false, addedTime: 0, period: 4 as MatchLiveState['period'], minute: 105 };
-           }
-           if (prev.period === 4 && needsPens) {
-             return { ...baseReturn, isHalfTime: false, isFinished: false, isPenalties: true, addedTime: currentAddedTime, homePenaltyScore: 0, awayPenaltyScore: 0, penaltySequence: [] };
-           }
-           return { ...baseReturn, isHalfTime: false, isFinished: true, addedTime: currentAddedTime };
         }
               
            
@@ -1442,7 +1273,7 @@ return {
       });
     }, tickInterval);
     return () => clearInterval(interval);
-  }, [matchState?.isPaused, matchState?.isPausedForEvent, matchState?.isFinished, matchState?.isHalfTime, matchState?.isPenalties, matchState?.speed, isCelebratingGoal, ctx, env, userSide, isTacticsOpen, activePenalty, activeVAR, hasMandatorySub, firstLegInfo, setMatchState]);
+  }, [matchState?.isPaused, matchState?.isPausedForEvent, matchState?.isFinished, matchState?.isHalfTime, matchState?.speed, isCelebratingGoal, ctx, env, userSide, isTacticsOpen, activePenalty, activeVAR, hasMandatorySub, setMatchState]);
 
  const handleFinishMatch = () => {
     if (!matchState || !ctx) return;
@@ -1583,7 +1414,7 @@ return {
        return c;
     });
 
-    const updatedFixtures = simResult.updatedFixtures.map(f => f.id === ctx.fixture.id ? { ...f, status: 'FINISHED' as any, homeScore: matchState.homeScore, awayScore: matchState.awayScore, ...(matchState.homePenaltyScore !== undefined && { homePenaltyScore: matchState.homePenaltyScore, awayPenaltyScore: matchState.awayPenaltyScore }) } : f);
+    const updatedFixtures = simResult.updatedFixtures.map(f => f.id === ctx.fixture.id ? { ...f, status: 'FINISHED' as any, homeScore: matchState.homeScore, awayScore: matchState.awayScore } : f);
 
     const clBgResult = BackgroundMatchProcessorCL.processChampionsLeagueEvent(currentDate, userTeamId, updatedFixtures, clubs, sessionSeed);
 
@@ -2061,10 +1892,8 @@ const SquadList = ({ side, lineup, players, fatigue, injs, subsHistory }: { side
                </div>
             ) : (
                <><div className="text-8xl font-black text-white tracking-tighter leading-none mb-1">{matchState.homeScore} <span className="text-slate-700 mx-1">&nbsp;&nbsp;&nbsp;</span> {matchState.awayScore}</div>
-                  {matchState.isPenalties && <div className="text-base font-black text-blue-400 font-mono mb-1">k. {matchState.homePenaltyScore ?? 0} – {matchState.awayPenaltyScore ?? 0}</div>}
-                  {firstLegInfo && (matchState.period as number) >= 2 && (() => { const flH = firstLegInfo.homeTeamId === ctx.homeClub.id ? (firstLegInfo.homeScore ?? 0) : (firstLegInfo.awayScore ?? 0); const flA = firstLegInfo.awayTeamId === ctx.awayClub.id ? (firstLegInfo.awayScore ?? 0) : (firstLegInfo.homeScore ?? 0); return <div className="text-[10px] font-black text-amber-400 tracking-widest">Łącznie: {flH + matchState.homeScore} – {flA + matchState.awayScore}</div>; })()}
-                  <div className="flex items-center gap-3"><div className="text-xl font-mono font-bold text-emerald-400 animate-pulse bg-emerald-500/10 px-3 py-0.5 rounded-lg border border-emerald-500/20">{matchState.isFinished ? 'WYNIK KOŃCOWY' : matchState.isPenalties ? 'RZUTY KARNE' : (matchState.period as number) >= 3 ? `DOG. ${matchState.minute}'` : `${matchState.minute}'`}</div>
-                  {matchState.addedTime > 0 && !matchState.isFinished && !matchState.isPenalties && <div className="text-[11px] font-black text-red-500 font-mono">+{matchState.addedTime}</div>}</div></>
+                  <div className="flex items-center gap-3"><div className="text-xl font-mono font-bold text-emerald-400 animate-pulse bg-emerald-500/10 px-3 py-0.5 rounded-lg border border-emerald-500/20">{matchState.isFinished ? 'WYNIK KOŃCOWY' : `${matchState.minute}'`}</div>
+                  {matchState.addedTime > 0 && !matchState.isFinished && <div className="text-[11px] font-black text-red-500 font-mono">+{matchState.addedTime}</div>}</div></>
             )}
          </div>
          <div className="flex-1 flex flex-col justify-center px-12 text-right relative overflow-hidden group">
@@ -2540,7 +2369,7 @@ const hasScored = matchState.homeGoals.some(g => g.playerName === p.lastName && 
       <div className="flex gap-3 justify-center py-3 px-8 bg-white/5 border border-white/10 rounded-[28px] shadow-2xl">
         <button
           disabled={hasMandatorySub}
-          onClick={() => matchState.isHalfTime ? setMatchState(s => s ? {...s, isHalfTime: false, isPaused: false, addedTime: 0} : s) : setMatchState(s => s ? {...s, isPaused: !s.isPaused, isPausedForEvent: false, flashMessage: null} : s)}
+          onClick={() => matchState.isHalfTime ? setMatchState(s => s ? {...s, isHalfTime: false, isPaused: false, period: 2, minute: 45, addedTime: 0} : s) : setMatchState(s => s ? {...s, isPaused: !s.isPaused, isPausedForEvent: false, flashMessage: null} : s)}
           className={`min-w-[170px] py-3 px-7 rounded-xl font-black italic uppercase tracking-widest text-sm transition-all hover:scale-105 active:scale-95 shadow-2xl border
             ${hasMandatorySub
               ? 'bg-red-600/20 border-red-500/40 text-red-500 hover:bg-red-600/30 shadow-red-500/10'
@@ -2662,56 +2491,10 @@ const hasScored = matchState.homeGoals.some(g => g.playerName === p.lastName && 
 ///Etykieta przerwa w meczu ///
      {matchState.isHalfTime && !isTacticsOpen && (
       <div className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none" style={{ transform: 'rotateX(-24deg)' }}>
-        {matchState.period === 3 ? (
-          <div className="bg-slate-950/90 backdrop-blur-2xl border-y-4 border-amber-500 px-16 py-8 rounded-[40px] shadow-[0_0_100px_rgba(245,158,11,0.4)] animate-pulse">
-            <div className="flex flex-col items-center">
-              <span className="text-[10px] font-black text-amber-400 tracking-[0.5em] mb-2">REMIS W DWUMECZU</span>
-              <span className="text-6xl font-black italic text-white uppercase tracking-[0.2em] drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">DOGRYWKA</span>
-              {firstLegInfo && <span className="text-sm font-bold text-amber-300 mt-2">Łącznie: {(firstLegInfo.homeTeamId === ctx.homeClub.id ? (firstLegInfo.homeScore ?? 0) : (firstLegInfo.awayScore ?? 0)) + matchState.homeScore} – {(firstLegInfo.awayTeamId === ctx.awayClub.id ? (firstLegInfo.awayScore ?? 0) : (firstLegInfo.homeScore ?? 0)) + matchState.awayScore}</span>}
-            </div>
-          </div>
-        ) : matchState.period === 4 ? (
-          <div className="bg-slate-950/90 backdrop-blur-2xl border-y-4 border-amber-500 px-16 py-8 rounded-[40px] shadow-[0_0_100px_rgba(245,158,11,0.4)] animate-pulse">
-            <div className="flex flex-col items-center">
-              <span className="text-[10px] font-black text-amber-400 tracking-[0.5em] mb-2">II POŁOWA DOGRYWKI</span>
-              <span className="text-5xl font-black italic text-white uppercase tracking-[0.2em] drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">PRZERWA</span>
-            </div>
-          </div>
-        ) : (
-          <div className="bg-slate-950/90 backdrop-blur-2xl border-y-4 border-rose-500 px-16 py-8 rounded-[40px] shadow-[0_0_100px_rgba(225,29,72,0.4)] animate-pulse">
-            <div className="flex flex-col items-center">
-              <span className="text-[10px] font-black text-rose-500 tracking-[0.5em] mb-2">PIŁKARZE SCHODZĄ DO SZATNI</span>
-              <span className="text-6xl font-black italic text-white uppercase tracking-[0.2em] drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">PRZERWA</span>
-            </div>
-          </div>
-        )}
-      </div>
-    )}
-
-    {matchState.isPenalties && !matchState.isFinished && !activePenalty && !isTacticsOpen && (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none" style={{ transform: 'rotateX(-24deg)' }}>
-        <div className="bg-slate-950/90 backdrop-blur-2xl border-y-4 border-blue-500 px-16 py-10 rounded-[40px] shadow-[0_0_100px_rgba(59,130,246,0.4)]">
-          <div className="flex flex-col items-center gap-4">
-            <span className="text-[10px] font-black text-blue-400 tracking-[0.5em]">ROZSTRZYGNIĘCIE</span>
-            <span className="text-6xl font-black italic text-white uppercase tracking-[0.2em] drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">RZUTY KARNE</span>
-            <div className="flex gap-6 mt-2">
-              <div className="flex flex-col items-center">
-                <span className="text-4xl font-black text-white">{matchState.homePenaltyScore ?? 0}</span>
-                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{ctx.homeClub.shortName}</span>
-              </div>
-              <span className="text-4xl font-black text-slate-600">–</span>
-              <div className="flex flex-col items-center">
-                <span className="text-4xl font-black text-white">{matchState.awayPenaltyScore ?? 0}</span>
-                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{ctx.awayClub.shortName}</span>
-              </div>
-            </div>
-            {(matchState.penaltySequence || []).length > 0 && (
-              <div className="flex gap-1 mt-1 flex-wrap justify-center max-w-xs">
-                {(matchState.penaltySequence || []).map((s, i) => (
-                  <span key={i} className={s.result === 'SCORED' ? 'text-white text-lg' : 'text-red-500 text-lg'}>{s.result === 'SCORED' ? '⚽' : '❌'}</span>
-                ))}
-              </div>
-            )}
+        <div className="bg-slate-950/90 backdrop-blur-2xl border-y-4 border-rose-500 px-16 py-8 rounded-[40px] shadow-[0_0_100px_rgba(225,29,72,0.4)] animate-pulse">
+          <div className="flex flex-col items-center">
+            <span className="text-[10px] font-black text-rose-500 tracking-[0.5em] mb-2">PIŁKARZE SCHODZĄ DO SZATNI</span>
+            <span className="text-6xl font-black italic text-white uppercase tracking-[0.2em] drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">PRZERWA</span>
           </div>
         </div>
       </div>
