@@ -174,6 +174,8 @@ const isPausedForSevereInjury = useMemo(() => {
 
   const hasMandatorySub = useMemo(() => {
     if (!matchState) return false;
+    const userSubsUsed = userSide === 'HOME' ? matchState.subsCountHome : matchState.subsCountAway;
+    if (userSubsUsed >= 5) return false;
     const userLineup = userSide === 'HOME' ? matchState.homeLineup : matchState.awayLineup;
     const userInjuries = userSide === 'HOME' ? matchState.homeInjuries : matchState.awayInjuries;
     return userLineup.startingXI.some(id => id && userInjuries[id] === InjurySeverity.SEVERE);
@@ -601,7 +603,7 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
         const activeSide: 'HOME' | 'AWAY' = seededRng(currentSeed, nextMinute, 600) < homeAttackChance ? 'HOME' : 'AWAY';
 
    // TUTAJ WSTAW TEN KOD - Logika Nasycenia (Satiety Logic)
-        let shotThreshold = 0.125; // Bazowa szansa
+        let shotThreshold = 0.1125; // Bazowa szansa (zmniejszona o 10%)
         const goalDiff = Math.abs(prev.homeScore - prev.awayScore);
         const leads = (activeSide === 'HOME' && prev.homeScore > prev.awayScore) || (activeSide === 'AWAY' && prev.awayScore > prev.homeScore);
 
@@ -1260,6 +1262,44 @@ const applyHalftimeRegen = (fatigueMap: Record<string, number>, playersList: Pla
         Object.keys(nextAwayInjuries).forEach(id => { if (nextAwayInjuries[id] === InjurySeverity.SEVERE) fatigue.away[id] = 0; });
 
         if (newLog) updatedLogs = [newLog, ...updatedLogs];
+
+        // WALKOWER: drużyna z ≤7 zawodnikami i bez dostępnych zmian przegrywa 3-0
+        const homeOnPitch = nextHomeLineup.startingXI.filter(id => id !== null).length;
+        const awayOnPitch = nextAwayLineup.startingXI.filter(id => id !== null).length;
+        const homeWalkover = homeOnPitch <= 7 && nextSubsCountHome >= 5;
+        const awayWalkover = awayOnPitch <= 7 && nextSubsCountAway >= 5;
+
+        if (homeWalkover || awayWalkover) {
+          const walText = (homeWalkover && awayWalkover)
+            ? `⛔ Obie drużyny mają zbyt mało zawodników. Mecz zakończony.`
+            : homeWalkover
+              ? `⛔ ${ctx.homeClub.name} ma tylko ${homeOnPitch} zawodników! Walkower – ${ctx.awayClub.name} wygrywa 3:0!`
+              : `⛔ ${ctx.awayClub.name} ma tylko ${awayOnPitch} zawodników! Walkower – ${ctx.homeClub.name} wygrywa 3:0!`;
+          const walLog: MatchLogEntry = { id: `WALKOVER_${nextMinute}`, minute: nextMinute, text: walText, type: MatchEventType.GENERIC };
+          const finalHomeScore = (homeWalkover && !awayWalkover) ? 0 : (!homeWalkover && awayWalkover) ? 3 : nextHomeScore;
+          const finalAwayScore = (!homeWalkover && awayWalkover) ? 0 : (homeWalkover && !awayWalkover) ? 3 : nextAwayScore;
+          return {
+            ...prev,
+            minute: nextMinute, addedTime: currentAddedTime,
+            homeScore: finalHomeScore, awayScore: finalAwayScore,
+            homeGoals: newHomeGoals, awayGoals: newAwayGoals,
+            momentum: momentumUpdate, momentumSum: nextMomentumSum, momentumTicks: nextMomentumTicks,
+            liveStats: nextLiveStats,
+            homeFatigue: fatigue.home, awayFatigue: fatigue.away,
+            homeLineup: nextHomeLineup, awayLineup: nextAwayLineup,
+            playerYellowCards: nextPlayerYellowCards, sentOffIds: nextSentOffIds,
+            logs: [walLog, ...updatedLogs],
+            isFinished: true, isPaused: true, isPausedForEvent: false, isHalfTime: false,
+            subsCountHome: nextSubsCountHome, subsCountAway: nextSubsCountAway,
+            homeSubsHistory: nextHomeSubsHistory, awaySubsHistory: nextAwaySubsHistory,
+            lastAiActionMinute: nextLastAiActionMinute, aiTacticLocked: nextAiTacticLocked,
+            homeInjuries: nextHomeInjuries, awayInjuries: nextAwayInjuries,
+            homeRiskMode: nextHomeRiskMode, awayRiskMode: nextAwayRiskMode,
+            homeInjuryMin: nextHomeInjuryMin, awayInjuryMin: nextAwayInjuryMin,
+            homeUpgradeProb: nextHomeUpgradeProb, awayUpgradeProb: nextAwayUpgradeProb,
+            userInstructions: nextUserInstructions,
+          };
+        }
 
         
 return {
