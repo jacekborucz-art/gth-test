@@ -13,7 +13,7 @@ export const StartMenu: React.FC = () => {
       <div className="absolute inset-0 z-0">
         {/* Real Football Background - High Contrast Stadium */}
         <div 
-          className="absolute inset-0 bg-[url('https://i.ibb.co/Fqs6zXg4/theme-no-tittle.jpg')] bg-cover bg-center scale-110 opacity-70 mix-blend-luminosity animate-pulse-slow"
+          className="absolute inset-0 bg-[url('/Graphic/themes/start_menu.jpg')] bg-cover bg-center scale-110 opacity-70 mix-blend-luminosity animate-pulse-slow"
         />
         {/* Overlays */}
         <div className="absolute inset-0 bg-gradient-to-b from-slate-950/20 via-slate-950/60 to-slate-950" />
