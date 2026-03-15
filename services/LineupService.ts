@@ -8,9 +8,10 @@ export const LineupService = {
   autoPickLineup: (clubId: string, players: Player[], tacticId: string = '4-4-2'): Lineup => {
     const tactic = TacticRepository.getById(tacticId);
     
-    // Na start wybieramy tylko tych, którzy są w stanie grać (nie SEVERE, nie zawieszeni, daysRemaining <= 2)
+    // Na start wybieramy tylko tych, którzy są w stanie grać (nie SEVERE, nie zawieszeni, daysRemaining <= 2, kondycja >= 60)
     const availablePlayers = players.filter(p => 
       (p.suspensionMatches || 0) === 0 && 
+      p.condition >= 60 &&
       (p.health.status === HealthStatus.HEALTHY || (p.health.injury?.severity !== InjurySeverity.SEVERE && (p.health.injury?.daysRemaining ?? 0) <= 2))
     );
         const COND_XI    = 90;
@@ -130,7 +131,7 @@ export const LineupService = {
 repairLineup: (lineup: Lineup, players: Player[]): Lineup => {
     const AI_FRESH_THRESHOLD = 87;
     const tactic = TacticRepository.getById(lineup.tacticId);
-    const canPlay = (p: Player) => (p.suspensionMatches || 0) === 0 && (p.health.status !== HealthStatus.INJURED || p.health.injury?.severity !== InjurySeverity.SEVERE);
+    const canPlay = (p: Player) => (p.suspensionMatches || 0) === 0 && p.condition >= 60 && (p.health.status !== HealthStatus.INJURED || p.health.injury?.severity !== InjurySeverity.SEVERE);
     
     const allAvailable = players.filter(canPlay);
     const freshPool = allAvailable.filter(p => p.condition >= AI_FRESH_THRESHOLD).sort((a,b) => b.overallRating - a.overallRating);

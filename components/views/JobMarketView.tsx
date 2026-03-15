@@ -1,35 +1,47 @@
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useGame } from '../../context/GameContext';
 import { ViewState, PlayerPosition, Player } from '../../types';
+
+const initialFilters = {
+  age: { min: 16, max: 45 },
+  pace: { min: 1, max: 99 },
+  strength: { min: 1, max: 99 },
+  stamina: { min: 1, max: 99 },
+  defending: { min: 1, max: 99 },
+  passing: { min: 1, max: 99 },
+  attacking: { min: 1, max: 99 },
+  finishing: { min: 1, max: 99 },
+  technique: { min: 1, max: 99 },
+  dribbling: { min: 1, max: 99 },
+  vision: { min: 1, max: 99 },
+  positioning: { min: 1, max: 99 },
+  goalkeeping: { min: 1, max: 99 }
+};
+
+// Persystencja filtrów między nawigacjami (stan modułowy, przeżywa odmontowanie komponentu)
+const _persisted = {
+  posFilter: 'ALL' as string,
+  searchTermPlayers: '' as string,
+  filters: { ...initialFilters } as typeof initialFilters,
+};
 
 export const JobMarketView: React.FC = () => {
   const { coaches, clubs, navigateTo, viewCoachDetails, viewClubDetails, players, viewPlayerDetails } = useGame();
 
-  // Filtry Piłkarzy - Nowa struktura zakresowa
-  const [searchTermPlayers, setSearchTermPlayers] = useState('');
-  const [posFilter, setPosFilter] = useState('ALL');
+  // Filtry Piłkarzy - inicjalizowane z ostatnich zapamiętanych wartości
+  const [searchTermPlayers, setSearchTermPlayers] = useState(_persisted.searchTermPlayers);
+  const [posFilter, setPosFilter] = useState(_persisted.posFilter);
   
   // Stan dla Listy Transferowej
   const [searchTermTransfer, setSearchTermTransfer] = useState('');
 
-  const initialFilters = {
-    age: { min: 16, max: 45 },
-    pace: { min: 1, max: 99 },
-    strength: { min: 1, max: 99 },
-    stamina: { min: 1, max: 99 },
-    defending: { min: 1, max: 99 },
-    passing: { min: 1, max: 99 },
-    attacking: { min: 1, max: 99 },
-    finishing: { min: 1, max: 99 },
-    technique: { min: 1, max: 99 },
-    dribbling: { min: 1, max: 99 },
-    vision: { min: 1, max: 99 },
-    positioning: { min: 1, max: 99 },
-    goalkeeping: { min: 1, max: 99 }
-  };
+  const [filters, setFilters] = useState<typeof initialFilters>(_persisted.filters);
 
-  const [filters, setFilters] = useState(initialFilters);
+  // Synchronizacja stanu do persystentnego obiektu modułowego
+  useEffect(() => { _persisted.posFilter = posFilter; }, [posFilter]);
+  useEffect(() => { _persisted.searchTermPlayers = searchTermPlayers; }, [searchTermPlayers]);
+  useEffect(() => { _persisted.filters = filters; }, [filters]);
 
   // SKASOWANO KOD: const [searchTermCoaches, setSearchTermCoaches] = useState('');
 
@@ -221,7 +233,7 @@ export const JobMarketView: React.FC = () => {
               </div>
             </div>
             <button 
-              onClick={() => setFilters(initialFilters)}
+              onClick={() => { setFilters(initialFilters); _persisted.filters = { ...initialFilters }; }}
               className="mt-4 w-full py-3 bg-white/[0.05] border border-white/10 rounded-xl text-[8px] font-black uppercase tracking-[0.2em] text-slate-500 hover:text-white hover:bg-white/[0.08] transition-all"
             >
               Resetuj filtry

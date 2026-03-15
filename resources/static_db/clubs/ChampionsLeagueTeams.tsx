@@ -77,7 +77,7 @@ export const RAW_CHAMPIONS_LEAGUE_CLUBS = [
   { name: "The New Saints", country: "WAL", tier: 4, colors: ['#00A650','#FFFFFF','#00A650'], stadium: "Park Hall", capacity: 2034, reputation: 7 },
   { name: "Breiðablik", country: "ISL", tier: 4, colors: ['#006633','#FFFFFF','#006633'], stadium: "Kópavogsvöllur", capacity: 5501, reputation: 8 },
   { name: "CSKA Moskwa", country: "RUS", tier: 3, colors: ['#fc0101','#001aff','#ff0000'], stadium: "VEB Arena", capacity: 30000, reputation: 12 },
-  { name: "BATE Borisov", country: "BIA", tier: 3, colors: ['#f2ff00','#1e00ff','#ffffff'], stadium: "BATE Area", capacity: 13126, reputation: 12 },
+  { name: "BATE Borisov", country: "BLR", tier: 3, colors: ['#f2ff00','#1e00ff','#ffffff'], stadium: "BATE Area", capacity: 13126, reputation: 12 },
   { name: "Spartak Moskwa", country: "RUS", tier: 2, colors: ['#ff0000','#ffffff','#ff0000'], stadium: "Otkritie Arena", capacity: 45000, reputation: 12 },
 ];
 export const generateEuropeanClubId = (name: string): string => {

@@ -301,6 +301,9 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
           tempoCooldown: -1,
           mindsetCooldown: -1,
           intensityCooldown: -1,
+          tempoResponseFactor: 1.0,
+          mindsetResponseFactor: 1.0,
+          intensityResponseFactor: 1.0,
          lastChangeMinute: -5,},
           playedPlayerIds: [],
         aiActiveShout: null,
@@ -2062,7 +2065,7 @@ const SquadList = ({ side, lineup, players, fatigue, injs, subsHistory }: { side
             ) : (
                <><div className="text-8xl font-black text-white tracking-tighter leading-none mb-1">{matchState.homeScore} <span className="text-slate-700 mx-1">&nbsp;&nbsp;&nbsp;</span> {matchState.awayScore}</div>
                   {matchState.isPenalties && <div className="text-base font-black text-blue-400 font-mono mb-1">k. {matchState.homePenaltyScore ?? 0} – {matchState.awayPenaltyScore ?? 0}</div>}
-                  {firstLegInfo && (matchState.period as number) >= 2 && (() => { const flH = firstLegInfo.homeTeamId === ctx.homeClub.id ? (firstLegInfo.homeScore ?? 0) : (firstLegInfo.awayScore ?? 0); const flA = firstLegInfo.awayTeamId === ctx.awayClub.id ? (firstLegInfo.awayScore ?? 0) : (firstLegInfo.homeScore ?? 0); return <div className="text-[10px] font-black text-amber-400 tracking-widest">Łącznie: {flH + matchState.homeScore} – {flA + matchState.awayScore}</div>; })()}
+                  {firstLegInfo && (matchState.period as number) >= 2 && (() => { const flH = firstLegInfo.homeTeamId === ctx.homeClub.id ? (firstLegInfo.homeScore ?? 0) : (firstLegInfo.awayScore ?? 0); const flA = firstLegInfo.awayTeamId === ctx.awayClub.id ? (firstLegInfo.awayScore ?? 0) : (firstLegInfo.homeScore ?? 0); return <div className="text-[10px] font-black text-amber-400 tracking-widest">WYNIK DWUMECZU: {flH + matchState.homeScore} – {flA + matchState.awayScore}</div>; })()}
                   <div className="flex items-center gap-3"><div className="text-xl font-mono font-bold text-emerald-400 animate-pulse bg-emerald-500/10 px-3 py-0.5 rounded-lg border border-emerald-500/20">{matchState.isFinished ? 'WYNIK KOŃCOWY' : matchState.isPenalties ? 'RZUTY KARNE' : (matchState.period as number) >= 3 ? `DOG. ${matchState.minute}'` : `${matchState.minute}'`}</div>
                   {matchState.addedTime > 0 && !matchState.isFinished && !matchState.isPenalties && <div className="text-[11px] font-black text-red-500 font-mono">+{matchState.addedTime}</div>}</div></>
             )}

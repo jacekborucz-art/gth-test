@@ -641,11 +641,10 @@ const boardConfidence = useMemo(() => {
               <TileButton label="PLANER" icon="📅" onClick={() => navigateTo(ViewState.CALENDAR_DEBUG)} disabled={isJumping} />
               <TileButton label="KADRA" icon="👕" onClick={() => navigateTo(ViewState.SQUAD_VIEW)} disabled={isJumping} />
               <TileButton 
-                 label="TRANSFERY" 
-                 icon="📝" 
-                 onClick={() => navigateTo(ViewState.TRANSFER_WINDOW)} 
-                 disabled={isJumping || !isTransferWindowOpen}
-                 badge={!isTransferWindowOpen ? <span className="text-[7px] font-black text-red-500 bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/20">CLOSED</span> : null}
+                 label="EUROPA" 
+                 icon="🌍" 
+                 onClick={() => navigateTo(ViewState.EUROPEAN_CLUBS)} 
+                 disabled={isJumping}
               />
               <TileButton label="ROZGRYWKI" icon="⚽" onClick={() => navigateTo(ViewState.LEAGUE_TABLES)} disabled={isJumping} />
               <TileButton label="STATYSTYKI" icon="🏆" onClick={() => navigateTo(ViewState.LEAGUE_STATS)} disabled={isJumping} />

@@ -10,6 +10,7 @@ export const GoalAttributionService = {
     
     // Failsafe dla brakujących graczy (np. po czerwonej kartce przed zmianą AI)
     if (!attacker) return false;
+    if (!goalkeeper) return rng() < 0.98; // Brak bramkarza = prawie pewny gol
 
     // PROGRESYWNA KRZYWA ZMĘCZENIA (kwadratowa)
     // Świeży (100) → 1.00 | Pomarańczowy (50%) → 0.863 | Czerwony (25%) → 0.691 | Leżący (0%) → 0.45

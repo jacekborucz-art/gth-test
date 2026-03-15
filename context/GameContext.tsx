@@ -9,7 +9,9 @@ HealthStatus,
 PlayerPosition, EuropeanStatus
 } from '../types';
 import { RAW_CHAMPIONS_LEAGUE_CLUBS, generateEuropeanClubId } from '../resources/static_db/clubs/ChampionsLeagueTeams';
-import { STATIC_CLUBS, STATIC_LEAGUES, STATIC_CL_CLUBS, START_DATE } from '../constants';
+import { RAW_EUROPA_LEAGUE_CLUBS, generateELClubId } from '../resources/static_db/clubs/EuropeLeagueTeams';
+import { RAW_CONFERENCE_LEAGUE_CLUBS, generateCONFClubId } from '../resources/static_db/clubs/ConferenceLeagueTeams';
+import { STATIC_CLUBS, STATIC_LEAGUES, STATIC_CL_CLUBS, STATIC_EL_CLUBS, STATIC_CONF_CLUBS, START_DATE } from '../constants';
 import { SeasonTemplateGenerator } from '../services/SeasonTemplateGenerator';
 import { LeagueScheduleGenerator } from '../services/LeagueScheduleGenerator';
 import { CalendarEngine } from '../services/CalendarEngine';
@@ -136,7 +138,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [sessionSeed, setSessionSeed] = useState<number>(0);
   const [viewState, setViewState] = useState<ViewState>(ViewState.START_MENU);
   const [previousViewState, setPreviousViewState] = useState<ViewState | null>(null);
-  const [clubs, setClubs] = useState<Club[]>([...STATIC_CLUBS, ...STATIC_CL_CLUBS]);
+  const [clubs, setClubs] = useState<Club[]>([...STATIC_CLUBS, ...STATIC_CL_CLUBS, ...STATIC_EL_CLUBS, ...STATIC_CONF_CLUBS]);
   const [leagues, setLeagues] = useState<League[]>(STATIC_LEAGUES);
   const [players, setPlayers] = useState<Record<string, Player[]>>({});
   const [lineups, setLineups] = useState<Record<string, Lineup>>({});
@@ -194,6 +196,20 @@ const getOrGenerateSquad = useCallback((clubId: string): Player[] => {
         return newSquad;
     }
 
+    const rawEL = RAW_EUROPA_LEAGUE_CLUBS.find(c => generateELClubId(c.name) === clubId);
+    if (rawEL) {
+        const newSquad = SquadGeneratorService.generateEuropeanSquad(clubId, rawEL.tier, rawEL.reputation, rawEL.country);
+        setPlayers(prev => ({ ...prev, [clubId]: newSquad }));
+        return newSquad;
+    }
+
+    const rawCONF = RAW_CONFERENCE_LEAGUE_CLUBS.find(c => generateCONFClubId(c.name) === clubId);
+    if (rawCONF) {
+        const newSquad = SquadGeneratorService.generateEuropeanSquad(clubId, rawCONF.tier, rawCONF.reputation, rawCONF.country);
+        setPlayers(prev => ({ ...prev, [clubId]: newSquad }));
+        return newSquad;
+    }
+
     const newSquad = SquadGeneratorService.generateSquadForClub(clubId);
     setPlayers(prev => ({ ...prev, [clubId]: newSquad }));
     return newSquad;
@@ -221,7 +237,7 @@ const getOrGenerateSquad = useCallback((clubId: string): Player[] => {
     setSessionSeed(Math.floor(Math.random() * 1000000));
     const template = SeasonTemplateGenerator.generate(startYear);
     // -> tutaj wstaw kod
-    const coachData = CoachService.generateInitialCoaches([...STATIC_CLUBS, ...STATIC_CL_CLUBS]);
+    const coachData = CoachService.generateInitialCoaches([...STATIC_CLUBS, ...STATIC_CL_CLUBS, ...STATIC_EL_CLUBS, ...STATIC_CONF_CLUBS]);
     setCoaches(coachData.coaches);
     setClubs(coachData.updatedClubs);
    
@@ -242,13 +258,21 @@ const getOrGenerateSquad = useCallback((clubId: string): Player[] => {
       const clubId = generateEuropeanClubId(club.name);
             europeanPlayers[clubId] = SquadGeneratorService.generateEuropeanSquad(clubId, club.tier, club.reputation, club.country);
     });
+    RAW_EUROPA_LEAGUE_CLUBS.forEach(club => {
+      const clubId = generateELClubId(club.name);
+      europeanPlayers[clubId] = SquadGeneratorService.generateEuropeanSquad(clubId, club.tier, club.reputation, club.country);
+    });
+    RAW_CONFERENCE_LEAGUE_CLUBS.forEach(club => {
+      const clubId = generateCONFClubId(club.name);
+      europeanPlayers[clubId] = SquadGeneratorService.generateEuropeanSquad(clubId, club.tier, club.reputation, club.country);
+    });
     setPlayers(prev => ({ ...prev, ...europeanPlayers }));
 
     setMessages([]);
     setProcessedDrawIds([]);
     const initialSuperCup = SuperCupService.generateFixture(2025, STATIC_CLUBS);
     setGlobalFixtures([initialSuperCup]);
-    setClubs([...STATIC_CLUBS.map(c => ({ ...c, isInPolishCup: false })), ...STATIC_CL_CLUBS]);
+    setClubs([...STATIC_CLUBS.map(c => ({ ...c, isInPolishCup: false })), ...STATIC_CL_CLUBS, ...STATIC_EL_CLUBS, ...STATIC_CONF_CLUBS]);
     navigateTo(ViewState.MANAGER_CREATION);
   };
 

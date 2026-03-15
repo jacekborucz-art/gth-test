@@ -273,6 +273,78 @@ export const CLDrawService = {
       return a;
     };
 
+    // Kraj drużyny: z rawClubs lub PL_ prefix → Poland
+    const getCountry = (id: string): string => {
+      const raw = rawClubs.find(c => generateEuropeanClubId(c.name) === id);
+      if (raw) return raw.country;
+      if (id.startsWith('PL_')) return 'Poland';
+      return '';
+    };
+
+    // Przypisz koszyk do grup z ograniczeniem: brak dwóch drużyn z tego samego kraju w grupie.
+    // Używa backtrackingu. Jeśli perfekcyjne przypisanie jest niemożliwe, minimalizuje konflikty.
+    const assignPotToGroups = (
+      pot: string[],
+      currentGroups: string[][],
+      s: number,
+    ): string[] => {
+      const shuffled = seededShuffle([...pot], s);
+      const n = shuffled.length;
+      const result: string[] = new Array(n).fill('');
+      const used: boolean[] = new Array(n).fill(false);
+
+      const canPlace = (teamIdx: number, groupIdx: number): boolean => {
+        const teamCountry = getCountry(shuffled[teamIdx]);
+        if (!teamCountry) return true;
+        return !currentGroups[groupIdx].some(id => {
+          const c = getCountry(id);
+          return c && c === teamCountry;
+        });
+      };
+
+      // Backtracking – szuka przypisania bez konfliktów krajowych
+      const backtrack = (groupIdx: number): boolean => {
+        if (groupIdx === n) return true;
+        for (let i = 0; i < n; i++) {
+          if (used[i] || !canPlace(i, groupIdx)) continue;
+          used[i] = true;
+          result[groupIdx] = shuffled[i];
+          if (backtrack(groupIdx + 1)) return true;
+          used[i] = false;
+        }
+        return false;
+      };
+
+      if (backtrack(0)) return result;
+
+      // Fallback: minimalizuj liczbę konfliktów (gdy idealne przypisanie jest niemożliwe)
+      const fbResult: string[] = new Array(n).fill('');
+      const fbUsed: boolean[] = new Array(n).fill(false);
+      let bestResult: string[] = [...shuffled];
+      let minConflicts = n + 1;
+
+      const btMinConflict = (groupIdx: number, conflicts: number): void => {
+        if (conflicts >= minConflicts) return; // przycinanie gałęzi
+        if (groupIdx === n) {
+          if (conflicts < minConflicts) {
+            minConflicts = conflicts;
+            bestResult = [...fbResult];
+          }
+          return;
+        }
+        for (let i = 0; i < n; i++) {
+          if (fbUsed[i]) continue;
+          fbUsed[i] = true;
+          fbResult[groupIdx] = shuffled[i];
+          btMinConflict(groupIdx + 1, conflicts + (canPlace(i, groupIdx) ? 0 : 1));
+          fbUsed[i] = false;
+        }
+      };
+
+      btMinConflict(0, 0);
+      return bestResult;
+    };
+
     // Upewnij się że mamy 32 drużyny (uzupełnij lub przytnij)
     let pool = [...teamIds];
     if (pool.length < 32) {
@@ -287,20 +359,33 @@ export const CLDrawService = {
 
     // Sortuj po reputacji (malejąco) → 4 koszyki po 8
     const sorted = [...pool].sort((a, b) => getReputation(b) - getReputation(a));
-    const pot1 = seededShuffle(sorted.slice(0, 8),  seed);
-    const pot2 = seededShuffle(sorted.slice(8, 16), seed ^ 0x11111111);
-    const pot3 = seededShuffle(sorted.slice(16, 24), seed ^ 0x22222222);
-    const pot4 = seededShuffle(sorted.slice(24, 32), seed ^ 0x33333333);
+    const pot1 = seededShuffle(sorted.slice(0, 8), seed);
+    const pot2 = sorted.slice(8, 16);
+    const pot3 = sorted.slice(16, 24);
+    const pot4 = sorted.slice(24, 32);
 
-    // 8 grup × 4 drużyny: bierz po 1 z każdego koszyka
+    // Koszyk 1: przypisz bezpośrednio (grupy są puste – brak możliwych konfliktów)
+    const assignedPot1 = pot1;
+    const groupsAfterPot1: string[][] = Array.from({ length: 8 }, (_, i) => [assignedPot1[i]]);
+
+    // Koszyki 2-4: przypisz z ograniczeniem krajowym
+    const assignedPot2 = assignPotToGroups(pot2, groupsAfterPot1, seed ^ 0x11111111);
+    const groupsAfterPot2: string[][] = groupsAfterPot1.map((g, i) => [...g, assignedPot2[i]]);
+
+    const assignedPot3 = assignPotToGroups(pot3, groupsAfterPot2, seed ^ 0x22222222);
+    const groupsAfterPot3: string[][] = groupsAfterPot2.map((g, i) => [...g, assignedPot3[i]]);
+
+    const assignedPot4 = assignPotToGroups(pot4, groupsAfterPot3, seed ^ 0x33333333);
+
+    // Złóż finalne grupy
     const groups: string[][] = Array.from({ length: 8 }, (_, i) => [
-      pot1[i],
-      pot2[i],
-      pot3[i],
-      pot4[i],
+      assignedPot1[i],
+      assignedPot2[i],
+      assignedPot3[i],
+      assignedPot4[i],
     ]);
 
-      return groups;
+    return groups;
   },
 
   // ── FAZA GRUPOWA: generuj fixtury dla 6 kolejek ───────────────────────────

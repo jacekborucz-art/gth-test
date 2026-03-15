@@ -37,6 +37,7 @@ import { PolishCupBracketView } from './components/views/PolishCupBracketView';
 import { PolishCupFinalistsView } from './PolishCupEngine/PolishCupFinalistsView';
 import { PostMatchCLStudioView } from './CLEngine/PostMatchCLStudioView';
 import { PreMatchCLStudioView } from './CLEngine/PreMatchCLStudioView';
+import { PreMatchCLLiveStudioView } from './CLEngine/PreMatchCLLiveStudioView';
 import { CLMatchLiveView } from './CLEngine/CLMatchLiveView';
 import { CLHistoryView } from './CLEngine/CLHistoryView';
 import { CLFinalDrawView } from './CLEngine/CLFinalDrawView';
@@ -45,6 +46,7 @@ import { CLQFDrawView } from './components/views/CLQFDrawView';
 import { CLSFDrawView } from './components/views/CLSFDrawView';
 import { PreMatchCLFinalView } from './components/views/PreMatchCLFinalView';
 import { PostMatchCLFinalView } from './components/views/PostMatchCLFinalView';
+import { EuropeanClubsView } from './components/views/EuropeanClubsView';
 
 // Internal component to handle view switching
 const AppContent: React.FC = () => {
@@ -57,6 +59,9 @@ const AppContent: React.FC = () => {
   return <CLHistoryView />;
 case ViewState.PRE_MATCH_CL_STUDIO:
   return <PreMatchCLStudioView />;
+
+case ViewState.PRE_MATCH_CL_LIVE_STUDIO:
+  return <PreMatchCLLiveStudioView />;
 
 case ViewState.MATCH_LIVE_CL:
   return <CLMatchLiveView />;
@@ -199,6 +204,9 @@ case ViewState.CL_GROUP_DRAW:
         return <PostMatchCupStudioView />;
       case ViewState.SCORE_RESULTS_POLISH_CUP:
         return <ScoreResultsPolishCup />;
+
+      case ViewState.EUROPEAN_CLUBS:
+        return <EuropeanClubsView />;
 
       default:
         return (

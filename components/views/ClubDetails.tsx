@@ -9,7 +9,7 @@ import { getClubLogo } from '../../resources/ClubLogoAssets';
 import bojoPitch from '../../Graphic/themes/bojo.png';
 
 export const ClubDetails: React.FC = () => {
-   const { viewedClubId, clubs, getOrGenerateSquad, lineups, updateLineup, navigateTo, viewPlayerDetails, coaches, viewCoachDetails, currentDate } = useGame();
+   const { viewedClubId, clubs, getOrGenerateSquad, lineups, updateLineup, navigateTo, viewPlayerDetails, coaches, viewCoachDetails, currentDate, previousViewState } = useGame();
   
   const [startingXI, setStartingXI] = useState<Player[]>([]);
   const [bench, setBench] = useState<Player[]>([]);
@@ -51,6 +51,8 @@ export const ClubDetails: React.FC = () => {
   const handleBack = () => {
     if (club.leagueId === 'L_PL_4') {
       navigateTo(ViewState.HIDDEN_LEAGUE);
+    } else if (previousViewState === ViewState.EUROPEAN_CLUBS) {
+      navigateTo(ViewState.EUROPEAN_CLUBS);
     } else {
       navigateTo(ViewState.LEAGUE_TABLES);
     }

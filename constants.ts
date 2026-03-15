@@ -2,6 +2,8 @@
 import { League, LeagueLevel, Club, Player, PlayerPosition, Region, HealthStatus, PlayerAttributes, NationalTeam } from './types';
 import { RAW_PL_CLUBS, generateClubId } from './resources/static_db/clubs/pl_clubs';
 import { RAW_CHAMPIONS_LEAGUE_CLUBS, generateEuropeanClubId } from './resources/static_db/clubs/ChampionsLeagueTeams';
+import { RAW_EUROPA_LEAGUE_CLUBS, generateELClubId } from './resources/static_db/clubs/EuropeLeagueTeams';
+import { RAW_CONFERENCE_LEAGUE_CLUBS, generateCONFClubId } from './resources/static_db/clubs/ConferenceLeagueTeams';
 // TUTAJ WSTAW IMPORTY DRUŻYN NARODOWYCH
 import { FinanceService } from './services/FinanceService';
 import { NATIONAL_TEAMS_EUROPE } from './resources/static_db/NationalTeams/NationalTeamsEurope';
@@ -14,18 +16,18 @@ import { NATIONAL_TEAMS_OFC } from './resources/static_db/NationalTeams/National
 // (Dodaj resztę importów analogicznie...)
 
 export const REGION_NATIONALITY_LABEL: Record<Region, string> = {
-  [Region.POLAND]:      'Polak',
-  [Region.GERMANY]:     'Niemiec',
-  [Region.SPAIN]:       'Hiszpan',
-  [Region.ENGLAND]:     'Anglik',
-  [Region.ITALY]:       'Włoch',
-  [Region.FRANCE]:      'Francuz',
-  [Region.BALKANS]:     'Bałkanin',
-  [Region.CZ_SK]:       'Czech/Słowak',
-  [Region.SSA]:         'Afrykańczyk',
-  [Region.IBERIA]:      'Iberyijczyk',
-  [Region.SCANDINAVIA]: 'Skandynaw',
-  [Region.EX_USSR]:     'Wschodnioeuropejczyk',
+  [Region.POLAND]:      'Polska',
+  [Region.GERMANY]:     'Niemcy',
+  [Region.SPAIN]:       'Hiszpania',
+  [Region.ENGLAND]:     'Anglia',
+  [Region.ITALY]:       'Włochy',
+  [Region.FRANCE]:      'Francja',
+  [Region.BALKANS]:     'Bałkany',
+  [Region.CZ_SK]:       'Czechy/Słowacja',
+  [Region.SSA]:         'Afryka Subsaharyjska',
+  [Region.IBERIA]:      'Półwysep Iberyjski',
+  [Region.SCANDINAVIA]: 'Skandynawia',
+  [Region.EX_USSR]:     'Europa Wschodnia',
 };
 
 const generateNTId = (name: string) => `NT_${name.toUpperCase().replace(/\s+/g, '_')}`;
@@ -161,6 +163,46 @@ export const STATIC_CL_CLUBS: Club[] = RAW_CHAMPIONS_LEAGUE_CLUBS.map(raw => ({
   name: raw.name,
   shortName: raw.name.split(' ').pop()?.substring(0, 6).toUpperCase() || raw.name.substring(0, 6).toUpperCase(),
   leagueId: 'L_CL',
+  colorsHex: raw.colors,
+  stadiumName: raw.stadium,
+  stadiumCapacity: raw.capacity,
+  reputation: raw.reputation,
+  isDefaultActive: true,
+  colorPrimary: raw.colors[0],
+  colorSecondary: raw.colors[1] || '#FFFFFF',
+  rosterIds: [],
+  budget: 0,
+  boardStrictness: 5,
+  signingBonusPool: 0,
+  stats: { points: 0, wins: 0, draws: 0, losses: 0, goalsFor: 0, goalsAgainst: 0, goalDifference: 0, played: 0, form: [] },
+  isInPolishCup: false,
+}));
+
+export const STATIC_EL_CLUBS: Club[] = RAW_EUROPA_LEAGUE_CLUBS.map(raw => ({
+  id: generateELClubId(raw.name),
+  name: raw.name,
+  shortName: raw.name.split(' ').pop()?.substring(0, 6).toUpperCase() || raw.name.substring(0, 6).toUpperCase(),
+  leagueId: 'L_EL',
+  colorsHex: raw.colors,
+  stadiumName: raw.stadium,
+  stadiumCapacity: raw.capacity,
+  reputation: raw.reputation,
+  isDefaultActive: true,
+  colorPrimary: raw.colors[0],
+  colorSecondary: raw.colors[1] || '#FFFFFF',
+  rosterIds: [],
+  budget: 0,
+  boardStrictness: 5,
+  signingBonusPool: 0,
+  stats: { points: 0, wins: 0, draws: 0, losses: 0, goalsFor: 0, goalsAgainst: 0, goalDifference: 0, played: 0, form: [] },
+  isInPolishCup: false,
+}));
+
+export const STATIC_CONF_CLUBS: Club[] = RAW_CONFERENCE_LEAGUE_CLUBS.map(raw => ({
+  id: generateCONFClubId(raw.name),
+  name: raw.name,
+  shortName: raw.name.split(' ').pop()?.substring(0, 6).toUpperCase() || raw.name.substring(0, 6).toUpperCase(),
+  leagueId: 'L_CONF',
   colorsHex: raw.colors,
   stadiumName: raw.stadium,
   stadiumCapacity: raw.capacity,

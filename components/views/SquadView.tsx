@@ -32,12 +32,14 @@ export const SquadView: React.FC = () => {
       if (clickedPlayer && loc === 'RES') {
          // Sprawdź zawieszenia
          if ((clickedPlayer.suspensionMatches || 0) > 0) {
-            alert("Ten zawodnik jest zawieszony i nie może zostać wybrany do składu meczowego.");
             return;
          }
          // Sprawdź kontuzje (SEVERE lub daysRemaining > 2)
          if (clickedPlayer.health.status === HealthStatus.INJURED && (clickedPlayer.health.injury?.severity === InjurySeverity.SEVERE || (clickedPlayer.health.injury?.daysRemaining ?? 0) > 2)) {
-            alert("Ten zawodnik jest kontuzjowany i nie może zostać wybrany do składu meczowego.");
+            return;
+         }
+         // Sprawdź przemęczenie (kondycja < 60)
+         if (clickedPlayer.condition < 60) {
             return;
          }
       }
@@ -48,12 +50,15 @@ export const SquadView: React.FC = () => {
       // Walidacja przy wstawianiu zawodnika z Rezerw do składu
       if (sourcePlayer && selectedSlot.loc === 'RES' && loc !== 'RES') {
          if ((sourcePlayer.suspensionMatches || 0) > 0) {
-            alert("Nie można wstawić zawieszonego gracza do składu.");
             setSelectedSlot(null);
             return;
          }
          if (sourcePlayer.health.status === HealthStatus.INJURED && (sourcePlayer.health.injury?.severity === InjurySeverity.SEVERE || (sourcePlayer.health.injury?.daysRemaining ?? 0) > 2)) {
-            alert("Nie można wstawić kontuzjowanego gracza do składu.");
+            setSelectedSlot(null);
+            return;
+         }
+         // Sprawdź przemęczenie (kondycja < 60)
+         if (sourcePlayer.condition < 60) {
             setSelectedSlot(null);
             return;
          }
@@ -116,6 +121,7 @@ export const SquadView: React.FC = () => {
     const isHighlighted = !isSelected && selectedRole && (loc === 'BENCH' || loc === 'RES') && player
       && !(( player.suspensionMatches || 0) > 0)
       && !(player.health.status === HealthStatus.INJURED && player.health.injury?.severity === InjurySeverity.SEVERE)
+      && !(player.condition < 60)
       && getPositionGroup(player.position) === getPositionGroup(selectedRole);
 
     if (!player && loc === 'START') {
@@ -140,6 +146,7 @@ export const SquadView: React.FC = () => {
     const condColor = PlayerPresentationService.getConditionColorClass(player.condition);
     const isSuspended = (player.suspensionMatches || 0) > 0;
     const isSevereInjured = player.health.status === HealthStatus.INJURED && player.health.injury?.severity === InjurySeverity.SEVERE;
+    const isOverfatigued = player.condition < 60;
     
     return (
       <tr 
@@ -148,7 +155,7 @@ export const SquadView: React.FC = () => {
         onDoubleClick={() => handlePlayerDoubleClick(player.id)}
         className={`group relative h-14 border-b border-white/5 transition-all cursor-pointer
           ${isSelected ? 'bg-blue-600/20 ring-1 ring-inset ring-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.1)]' : isHighlighted ? 'bg-emerald-500/10 ring-1 ring-inset ring-emerald-400/60 shadow-[0_0_16px_rgba(52,211,153,0.15)]' : 'hover:bg-white/[0.03]'}
-          ${(isSuspended || isSevereInjured) ? 'opacity-30 grayscale' : ''}`}
+          ${(isSuspended || isSevereInjured || isOverfatigued) ? 'opacity-30 grayscale' : ''}`}
       >
         <td className="pl-6 w-12 relative z-10">
            <span className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">{label}</span>
@@ -159,7 +166,7 @@ export const SquadView: React.FC = () => {
         <td className="relative z-10">
            <div className="flex items-center gap-3">
               <div className="flex flex-col">
-                <span className={`text-sm font-black uppercase italic tracking-tight transition-colors ${(isSuspended || isSevereInjured) ? 'text-slate-500' : 'text-white group-hover:text-blue-400'}`}>
+                <span className={`text-sm font-black uppercase italic tracking-tight transition-colors ${(isSuspended || isSevereInjured || isOverfatigued) ? 'text-slate-500' : 'text-white group-hover:text-blue-400'}`}>
                   {player.lastName}
                 </span>
                 <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">{player.firstName}</span>

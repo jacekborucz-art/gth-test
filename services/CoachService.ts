@@ -6,7 +6,7 @@ export const CoachService = {
     const coaches: Record<string, Coach> = {};
     const coachList: Coach[] = [];
 
-    for (let i = 0; i < 550; i++) {
+    for (let i = 0; i < 1500; i++) {
       coachList.push(CoachService.createRandomCoach(i < 180));
     }
 
@@ -19,8 +19,8 @@ const updatedClubs = [...clubs];
       let minExp = 0;
       let maxExp = 55;
 
-      if (club.leagueId === 'L_CL') {
-        // Trenerzy dla klubów Ligi Mistrzów — wg reputacji (koreluje z tier)
+      if (club.leagueId === 'L_CL' || club.leagueId === 'L_EL' || club.leagueId === 'L_CONF') {
+        // Trenerzy dla klubów europejskich — wg reputacji (koreluje z tier)
         if (club.reputation >= 18) { minExp = 80; maxExp = 99; }       // Tier 1 top (Real, Bayern, PSG)
         else if (club.reputation >= 15) { minExp = 70; maxExp = 88; }  // Tier 1 (Porto, Benfica)
         else if (club.reputation >= 12) { minExp = 48; maxExp = 75; }  // Tier 2 (Club Brugge, Dinamo)
@@ -32,8 +32,8 @@ const updatedClubs = [...clubs];
       }
 
       // Szukamy wolnych trenerów spełniających kryterium doświadczenia
-    // Dla CL Tier 1 i 2 (reputacja >= 12) — trener nie może być Polakiem
-      const excludePolish = club.leagueId === 'L_CL' && club.reputation >= 12;
+    // Dla europejskich Tier 1 i 2 (reputacja >= 12) — trener nie może być Polakiem
+      const excludePolish = (club.leagueId === 'L_CL' || club.leagueId === 'L_EL' || club.leagueId === 'L_CONF') && club.reputation >= 12;
 
       const candidates = coachList.filter(c => 
         c.attributes.experience >= minExp &&
@@ -66,8 +66,8 @@ const updatedClubs = [...clubs];
         });
         club.coachId = coach.id;
 
-        // Dla CL Tier 1 (rep >= 18) — każdy atrybut poniżej 80 losujemy między 80-99
-        if (club.leagueId === 'L_CL' && club.reputation >= 18) {
+        // Dla europejskich Tier 1 (rep >= 18) — każdy atrybut poniżej 80 losujemy między 80-99
+        if ((club.leagueId === 'L_CL' || club.leagueId === 'L_EL' || club.leagueId === 'L_CONF') && club.reputation >= 18) {
           const attrs = coach.attributes;
           const keys: (keyof typeof attrs)[] = ['experience', 'decisionMaking', 'motivation', 'training'];
           keys.forEach(key => {

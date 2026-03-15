@@ -48,6 +48,7 @@ export enum ViewState {
 
 
    PRE_MATCH_CL_STUDIO = 'PRE_MATCH_CL_STUDIO',
+  PRE_MATCH_CL_LIVE_STUDIO = 'PRE_MATCH_CL_LIVE_STUDIO',
   POST_MATCH_CL_STUDIO = 'POST_MATCH_CL_STUDIO',
   MATCH_LIVE_CL = 'MATCH_LIVE_CL',
   CL_BRACKET = 'CL_BRACKET',
@@ -57,7 +58,8 @@ export enum ViewState {
   CL_SF_DRAW = 'CL_SF_DRAW',
   CL_FINAL_DRAW = 'CL_FINAL_DRAW',
   PRE_MATCH_CL_FINAL = 'PRE_MATCH_CL_FINAL',
-  POST_MATCH_CL_FINAL = 'POST_MATCH_CL_FINAL'
+  POST_MATCH_CL_FINAL = 'POST_MATCH_CL_FINAL',
+  EUROPEAN_CLUBS = 'EUROPEAN_CLUBS'
 }
 
 export enum MailType {
@@ -486,6 +488,7 @@ export interface MatchEvent {
 
 export interface GoalTickerInfo {
   playerName: string;
+  scorerId?: string;
   minute: number;
   isPenalty: boolean;
   isMiss?: boolean;
@@ -509,6 +512,9 @@ export interface TacticalInstructions {
   tempoCooldown: number;
   mindsetCooldown: number;
   intensityCooldown: number;
+  tempoResponseFactor: number;
+  mindsetResponseFactor: number;
+  intensityResponseFactor: number;
 }
 export interface SubstitutionRecord {
   playerOutId: string;

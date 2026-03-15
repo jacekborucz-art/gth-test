@@ -60,7 +60,7 @@ const isR16 = todayPairs.length > 0 &&
 
   useEffect(() => {
     if (userHasMatch) {
-      navigateTo(ViewState.MATCH_LIVE_CL);
+      navigateTo(ViewState.PRE_MATCH_CL_LIVE_STUDIO);
     }
   }, [userHasMatch]);
 
@@ -102,7 +102,7 @@ const isR16 = todayPairs.length > 0 &&
           </div>
           {userHasMatch && (
             <button
-              onClick={() => navigateTo(ViewState.MATCH_LIVE_CL)}
+              onClick={() => navigateTo(ViewState.PRE_MATCH_CL_LIVE_STUDIO)}
               className="px-10 py-4 bg-emerald-500 hover:bg-emerald-400 text-white font-black italic uppercase tracking-widest rounded-2xl shadow-2xl transition-all hover:scale-105 active:scale-95 text-sm"
             >
               ZAGRAJ NA ŻYWO →

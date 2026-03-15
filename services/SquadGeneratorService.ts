@@ -183,17 +183,27 @@ marketValue: FinanceService.calculateMarketValue(p, clubRep, leagueTier)
     generateEuropeanSquad: (clubId: string, tier: number, reputation: number, country: string): Player[] => {
     const usedNames = new Set<string>();
 
-    // Mapa kraju → Region lokalny (tylko dla 5 obsługiwanych krajów)
+    // Mapa kraju → Region lokalny
     const countryToRegion: Partial<Record<string, Region>> = {
       'ESP': Region.SPAIN,
       'ENG': Region.ENGLAND,
       'GER': Region.GERMANY,
       'ITA': Region.ITALY,
       'FRA': Region.FRANCE,
+      'SRB': Region.BALKANS,
+      'BUL': Region.BALKANS,
+      'CRO': Region.BALKANS,
+      'BIH': Region.BALKANS,
+      'MKD': Region.BALKANS,
+      'MNE': Region.BALKANS,
+      'ALB': Region.BALKANS,
+      'SVN': Region.BALKANS,
+      'ROU': Region.BALKANS,
+      'GRE': Region.BALKANS,
     };
        const localRegion = countryToRegion[country] ?? null;
-    // 60–80% składu to rodacy dla Tier 1 i 2 z obsługiwanych krajów
-    const localRatio = localRegion ? (0.4 + Math.random() * 0.2) : 0;
+    // Bałkany: stałe 70% zawodników z bałkańskimi nazwiskami; pozostałe regiony: 40–60%
+    const localRatio = localRegion === Region.BALKANS ? 0.7 : localRegion ? (0.4 + Math.random() * 0.2) : 0;
     const localCount = Math.round(30 * localRatio);
     console.log(`[Squad] ${clubId} | country=${country} | localRegion=${localRegion} | localCount=${localCount}/30`);
 
