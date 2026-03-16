@@ -5,6 +5,7 @@ import stadionBg from '../../Graphic/themes/stadion.png';
 import { Card } from '../ui/Card';
 import { LineupService } from '../../services/LineupService';
 import { MailDetailsModal } from '../modals/MailDetailsModal';
+import { FinanceHistoryModal } from '../modals/FinanceHistoryModal';
 import { FinanceService } from '../../services/FinanceService';
 import { getClubLogo } from '../../resources/ClubLogoAssets';
 
@@ -38,6 +39,7 @@ export const Dashboard: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [selectedMail, setSelectedMail] = useState<MailMessage | null>(null);
+  const [isFinanceModalOpen, setIsFinanceModalOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
 
   const myClub = clubs.find(c => c.id === userTeamId);
@@ -334,7 +336,7 @@ const boardConfidence = useMemo(() => {
         <div className="fixed inset-0 z-[1000] bg-black/40 backdrop-blur-[2px] flex items-center justify-center pointer-events-none">
            <div className="bg-slate-900 border border-white/10 px-8 py-4 rounded-2xl shadow-2xl flex items-center gap-4 animate-pulse">
               <div className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
-              <span className="text-xs font-black text-white uppercase tracking-widest">PRZESUWANIE CZASU...</span>
+              <span className="text-xs font-black text-white uppercase tracking-widest">PRZETWARZANIE DANYCH...</span>
            </div>
         </div>
       )}
@@ -346,6 +348,14 @@ const boardConfidence = useMemo(() => {
             markMessageRead(selectedMail.id);
             setSelectedMail(null);
           }} 
+        />
+      )}
+
+      {myClub && (
+        <FinanceHistoryModal
+          isOpen={isFinanceModalOpen}
+          onClose={() => setIsFinanceModalOpen(false)}
+          club={myClub}
         />
       )}
 
@@ -618,10 +628,14 @@ const boardConfidence = useMemo(() => {
 
            <div className="space-y-4 shrink-0">
               {[
-                { label: 'Budżet Transferowy', value: `${currentBudget} PLN`, color: 'text-blue-400', icon: '💰', p: 80 },
+                { label: 'Budżet Transferowy', value: `${currentBudget} PLN`, color: 'text-blue-400', icon: '💰', p: 80, onClick: () => setIsFinanceModalOpen(true) },
                 { label: 'Zaufanie Zarządu', value: `${boardConfidence}%`, color: boardConfidence > 70 ? 'text-emerald-400' : (boardConfidence > 40 ? 'text-amber-400' : 'text-red-500'), icon: '📈', p: boardConfidence },
               ].map((stat, i) => (
-                <div key={i} className="bg-slate-900/40 p-5 rounded-[28px] border border-white/5 flex flex-col gap-3 backdrop-blur-md hover:border-white/10 transition-all group shadow-xl">
+                <div 
+                  key={i} 
+                  onClick={stat.onClick}
+                  className={`bg-slate-900/40 p-5 rounded-[28px] border border-white/5 flex flex-col gap-3 backdrop-blur-md hover:border-white/10 transition-all group shadow-xl ${stat.onClick ? 'cursor-pointer hover:bg-white/5' : ''}`}
+                >
                    <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <span className="text-xl group-hover:scale-110 transition-transform">{stat.icon}</span>

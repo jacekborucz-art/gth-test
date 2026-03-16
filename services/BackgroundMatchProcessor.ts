@@ -236,9 +236,57 @@ if (todayFixtures.length === 0) {
           const newForm = [...(c.stats.form || []), resultChar].slice(-5) as ("W" | "R" | "P")[];
 
           const matchExpenses = isHome ? homeMatchExpenses : awayMatchExpenses;
+          const ticketPrice = 45;
+          const ticketRevenue = isHome ? (fixture.attendance || 0) * ticketPrice : 0;
+          const netChange = ticketRevenue - matchExpenses;
+
+          // Tworzymy logi finansowe z poprzednim saldem
+          const financeLogsToAdd: any[] = [];
+          let runningBalance = c.budget; // Saldo przed operacjami
+          
+          if (isHome) {
+            // 🏟️ Przychody z biletów
+            if (ticketRevenue > 0) {
+              financeLogsToAdd.push({
+                id: Math.random().toString(36).substr(2, 9),
+                date: currentDate.toISOString().split('T')[0],
+                amount: ticketRevenue,
+                type: 'INCOME' as const,
+                description: `Przychody z biletów: ${fixture.attendance || 0} widzów @ 45 PLN`,
+                previousBalance: runningBalance
+              });
+              runningBalance += ticketRevenue;
+            }
+            
+            // 💰 Koszty organizacji
+            if (matchExpenses > 0) {
+              financeLogsToAdd.push({
+                id: Math.random().toString(36).substr(2, 9),
+                date: currentDate.toISOString().split('T')[0],
+                amount: -matchExpenses,
+                type: 'EXPENSE' as const,
+                description: `Koszty organizacji meczu`,
+                previousBalance: runningBalance
+              });
+              runningBalance -= matchExpenses;
+            }
+          } else {
+            // 🚌 Koszty wyjazdu (away)
+            financeLogsToAdd.push({
+              id: Math.random().toString(36).substr(2, 9),
+              date: currentDate.toISOString().split('T')[0],
+              amount: -matchExpenses,
+              type: 'EXPENSE' as const,
+              description: `Koszty wyjazdu`,
+              previousBalance: runningBalance
+            });
+            runningBalance -= matchExpenses;
+          }
+
           return {
             ...c,
-            budget: c.budget - matchExpenses,
+            budget: c.budget + netChange,
+            financeHistory: [...financeLogsToAdd, ...(c.financeHistory || [])].slice(0, 50),
             stats: {
               ...c.stats,
               played: c.stats.played + 1,

@@ -1466,6 +1466,12 @@ return {
        if (c.id === ctx.homeClub.id || c.id === ctx.awayClub.id) {
           const isHome = c.id === ctx.homeClub.id;
           const matchCost = FinanceService.calculateMatchdayExpenses(c, isHome);
+          
+          // Dodajemy przychód z biletów dla gospodarza
+          const ticketPrice = 45; // Stała cena biletu (można ją później sparametryzować)
+          const ticketRevenue = isHome ? (ctx.fixture.attendance || 0) * ticketPrice : 0;
+          const netChange = ticketRevenue - matchCost;
+
           const s = isHome ? matchState.homeScore : matchState.awayScore;
           const o = isHome ? matchState.awayScore : matchState.homeScore;
           const pts = s > o ? 3 : (s === o ? 1 : 0);
@@ -1473,9 +1479,46 @@ return {
           const resultChar: "W" | "R" | "P" = pts === 3 ? 'W' : (pts === 1 ? 'R' : 'P');
           const newForm = [...(c.stats.form || []), resultChar].slice(-5) as ("W" | "R" | "P")[];
 
+          // Tworzymy logi finansowe
+          const financeLogsToAdd: any[] = [];
+          
+          if (isHome) {
+            // 🏟️ Przychody z biletów
+            if (ticketRevenue > 0) {
+              financeLogsToAdd.push({
+                id: Math.random().toString(36).substr(2, 9),
+                date: currentDate.toISOString().split('T')[0],
+                amount: ticketRevenue,
+                type: 'INCOME' as const,
+                description: `Przychody z biletów: ${ctx.fixture.attendance || 0} widzów @ 45 PLN`
+              });
+            }
+            
+            // 💰 Koszty organizacji
+            if (matchCost > 0) {
+              financeLogsToAdd.push({
+                id: Math.random().toString(36).substr(2, 9),
+                date: currentDate.toISOString().split('T')[0],
+                amount: -matchCost,
+                type: 'EXPENSE' as const,
+                description: `Koszty organizacji meczu`
+              });
+            }
+          } else {
+            // 🚌 Koszty wyjazdu (away)
+            financeLogsToAdd.push({
+              id: Math.random().toString(36).substr(2, 9),
+              date: currentDate.toISOString().split('T')[0],
+              amount: -matchCost,
+              type: 'EXPENSE' as const,
+              description: `Koszty wyjazdu`
+            });
+          }
+
           return {
             ...c, 
-            budget: c.budget - matchCost,
+            budget: c.budget + netChange,
+            financeHistory: [...financeLogsToAdd, ...(c.financeHistory || [])].slice(0, 50),
             stats: {
               ...c.stats, 
               played: c.stats.played + 1, 

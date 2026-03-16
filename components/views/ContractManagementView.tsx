@@ -8,7 +8,7 @@ import { MailService } from '../../services/MailService';
 export const ContractManagementView: React.FC = () => {
   const { 
     viewedPlayerId, players, clubs, navigateTo, 
-    currentDate, setPlayers, setClubs, lineups, updateLineup, setMessages 
+    currentDate, setPlayers, setClubs, lineups, updateLineup, setMessages, addFinanceLog 
   } = useGame();
   
   const [isProcessing, setIsProcessing] = useState(false);
@@ -186,7 +186,18 @@ export const ContractManagementView: React.FC = () => {
   const handleReleasePlayer = () => {
     if (!boardDecision || (boardDecision.status !== 'APPROVED' && boardDecision.status !== 'WARNING')) return;
 
+    const previousBudget = club.budget; // Saldo PRZED zmianą
     setClubs(prev => prev.map(c => c.id === club.id ? { ...c, budget: c.budget - penaltyAmount } : c));
+    
+    // 💼 Log zwolnienia zawodnika z poprzednim saldem
+    addFinanceLog(
+      club.id,
+      `Zwolnienie: ${player.firstName} ${player.lastName}`,
+      -penaltyAmount,
+      currentDate,
+      previousBudget
+    );
+    
    const playerToRelease = squad.find(p => p.id === viewedPlayerId)!;
     
     // AKTUALIZACJA HISTORII - TUTAJ WSTAW TEN KOD

@@ -337,6 +337,15 @@ export interface TeamStats {
   form: ('W' | 'R' | 'P')[];
 }
 
+export interface FinanceLog {
+  id: string;
+  date: string;
+  amount: number;
+  type: 'INCOME' | 'EXPENSE';
+  description: string;
+  previousBalance?: number; // Saldo przed operacją
+}
+
 export interface Club {
   id: string;
   name: string;
@@ -357,6 +366,7 @@ export interface Club {
   boardStrictness: number;
   signingBonusPool: number; // Pula pieniędzy zarezerwowana tylko na bonusy za podpis
   squadNeeds?: Record<string, number>; 
+  financeHistory?: FinanceLog[];
 }
 
 export interface EuropeanStatus {

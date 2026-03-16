@@ -9,6 +9,7 @@ import cracoviaLogo              from '../Graphic/logo/cracovia-2024-logo.png';
 import elanaTorunLogo            from '../Graphic/logo/Elana_Torun.png';
 import gksKatowiceLogo           from '../Graphic/logo/gks-katowice-logo.png';
 import gksJastrzebieLogo         from '../Graphic/logo/GKS_Jastrzębie.png';
+import gksbelchatowLogo          from '../Graphic/logo/gksbelchatow.png';
 import gksTychyLogo              from '../Graphic/logo/gks_tychy.png';
 import gornikLecznaLogo          from '../Graphic/logo/gornik_leczna.png';
 import gornikZabrzeLogo          from '../Graphic/logo/Gornik_zabrze.png';
@@ -18,6 +19,7 @@ import kks1925KaliszLogo         from '../Graphic/logo/kks-1925-kalisz.png';
 import koronaKielceLogo          from '../Graphic/logo/korona-kielce-2024-logo.png';
 import kszoOstrowiecLogo         from '../Graphic/logo/kszo-ostrowiec-swietokrzyski.png';
 import lechPoznanLogo            from '../Graphic/logo/lech-poznan-2022-logo.png';
+import lechiagdanskLogo          from '../Graphic/logo/lechia_gdansk.png';
 import legiaWarszawaLogo         from '../Graphic/logo/legia-warsaw-2019-logo.png';
 import lksGoczalkowiceZdrojLogo  from '../Graphic/logo/lks-goczalkowice-zdroj-2025-logo.png';
 import lksLodzLogo               from '../Graphic/logo/lks_lodz.png';
@@ -30,6 +32,7 @@ import podbeskidzieBBLogo        from '../Graphic/logo/Podbeskidzie_bielsko_bial
 import podhaleNTLogo             from '../Graphic/logo/Podhale_Nowy_Targ.png';
 import pogonGrodziskLogo         from '../Graphic/logo/pogon-grodzisk-mazowiecki.png';
 import pogonSzczecinLogo         from '../Graphic/logo/pogon_szczecin.png';
+import pogonsiedlceLogo          from '../Graphic/logo/pogon_siedlce.png';
 import poloniaBydgoszczLogo      from '../Graphic/logo/polonia-bydgoszcz-logo.png';
 import poloniaBytomsLogo         from '../Graphic/logo/Polonia_Bytom.png';
 import poloniaWarszawaLogo       from '../Graphic/logo/Polonia_warszawa.png';
@@ -60,6 +63,16 @@ import zaglebieSosnowiecLogo     from '../Graphic/logo/Zaglebie_Sosnowiec.png';
 import zawiszaBydgoszczLogo      from '../Graphic/logo/zawisza-bydgoszcz.png';
 import zniczPruszkow             from '../Graphic/logo/znicz-pruszkow.png';
 
+
+//ENGLISH:
+import manchestercitylogo from '../Graphic/logo/england/man_city.png';
+import manchesterunitedlogo from '../Graphic/logo/england/man_utd.png';
+
+
+//SPAIN
+import barcelonaLogo from '../Graphic/logo/spain/barcelona.png';
+import realmadridlogo from '../Graphic/logo/spain/real_madrid.png'; // Placeholder, replace with actual Real Madrid logo when available
+
 // Mapa: clubId → URL loga
 export const CLUB_LOGOS: Record<string, string> = {
   PL_ARKA_GDYNIA:                    arkaGdyniaLogo,
@@ -74,6 +87,7 @@ export const CLUB_LOGOS: Record<string, string> = {
   PL_GKS_JASTRZEBIE:                 gksJastrzebieLogo,
   PL_GKS_TYCHY:                      gksTychyLogo,
   PL_GORNIK_LECZNA:                  gornikLecznaLogo,
+  PL_GKS_BELCHATOW:                  gksbelchatowLogo,
   PL_GORNIK_ZABRZE:                  gornikZabrzeLogo,
   PL_HUTNIK_KRAKOW:                  hutnikKrakowLogo,
   PL_JAGIELLONIA_BIALYSTOK:          jagielloniaBialystokLogo,
@@ -83,6 +97,7 @@ export const CLUB_LOGOS: Record<string, string> = {
   PL_LECH_POZNAN:                    lechPoznanLogo,
   PL_LEGIA_WARSZAWA:                 legiaWarszawaLogo,
   PL_LKS_GOCZALKOWICE_ZDROJ:        lksGoczalkowiceZdrojLogo,
+  PL_LECHIA_GDANSK:                  lechiagdanskLogo,
   PL_LKS_LODZ:                       lksLodzLogo,
   PL_MIEDZ_LEGNICA:                  miedzLegnicaLogo,
   PL_MOTOR_LUBLIN:                   motorLublinLogo,
@@ -93,6 +108,7 @@ export const CLUB_LOGOS: Record<string, string> = {
   PL_PODHALE_NOWY_TARG:              podhaleNTLogo,
   PL_POGON_GRODZISK_MAZOWIECKI:      pogonGrodziskLogo,
   PL_POGON_SZCZECIN:                 pogonSzczecinLogo,
+  PL_POGON_SIEDLCE:                  pogonsiedlceLogo,
   PL_POLONIA_BYDGOSZCZ:              poloniaBydgoszczLogo,
   PL_POLONIA_BYTOM:                  poloniaBytomsLogo,
   PL_POLONIA_WARSZAWA:               poloniaWarszawaLogo,
@@ -122,6 +138,15 @@ export const CLUB_LOGOS: Record<string, string> = {
   PL_ZAGLEBIE_SOSNOWIEC:             zaglebieSosnowiecLogo,
   PL_ZAWISZA_BYDGOSZCZ:              zawiszaBydgoszczLogo,
   PL_ZNICZ_PRUSZKOW:                 zniczPruszkow,
+
+
+
+  EU_CL_MANCHESTER_CITY:                 manchestercitylogo,
+  EU_CL_MANCHESTER_UNITED:              manchesterunitedlogo,
+
+
+EU_CL_FC_BARCELONA:                       barcelonaLogo,
+EU_CL_REAL_MADRYT:                       realmadridlogo, // Placeholder, replace with actual Real Madrid logo when available
 };
 
 /**

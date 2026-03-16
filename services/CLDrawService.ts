@@ -108,13 +108,12 @@ export const CLDrawService = {
       .sort((a, b) => a.tier - b.tier || b.reputation - a.reputation)
       .map(c => generateEuropeanClubId(c.name));
 
-    // 4. Budowa puli: Mistrz Polski + drużyna gracza ZAWSZE pierwsi, potem reszta do 64
-    // WAŻNE: polskie drużyny dodajemy N A P I E R W, zanim EU drużyny mogą wypełnić 64 sloty
+    // 4. Budowa puli: Mistrz Polski ZAWSZE pierwszy, potem reszta do 64
+    // WAŻNE: gracz wchodzi do LM TYLKO jeśli jest mistrzem Polski
     const pool: string[] = [];
 
-    // Najpierw dodaj polskie drużyny (gwarantujemy ich miejsce w puli)
+    // Najpierw dodaj mistrza Polski (gwarantujemy jego miejsce w puli)
     if (polishChampionId) pool.push(polishChampionId);
-    if (userTeamId && !pool.includes(userTeamId)) pool.push(userTeamId);
 
     // Dodaj zwycięzców R1Q
     for (const id of r1qWinners) {

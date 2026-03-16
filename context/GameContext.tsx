@@ -126,10 +126,8 @@ finalizeFreeAgentContract: (mailId: string) => void;
 
  europeanStatus: Record<string, EuropeanStatus>;
   setEuropeanStatus: React.Dispatch<React.SetStateAction<Record<string, EuropeanStatus>>>;
+  addFinanceLog: (clubId: string, description: string, amount: number, date?: Date, previousBalance?: number) => void;
 }
-
-
-
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
 
@@ -175,6 +173,35 @@ const [activeIntensity, setActiveIntensity] = useState<TrainingIntensity>(Traini
 
   // Guard: zapobiega wielokrotnemu uruchomieniu processLeagueEvent dla tej samej daty
   const lastProcessedLeagueDateRef = React.useRef<string | null>(null);
+
+  // Helper do dodawania logów finansowych
+  const addFinanceLog = useCallback((clubId: string, description: string, amount: number, date?: Date, previousBalance?: number) => {
+    const logDate = (date || currentDate).toISOString().split('T')[0];
+    
+    // Jeśli previousBalance nie podany, pobierz z klubu
+    let prevBalance = previousBalance;
+    if (prevBalance === undefined) {
+      const club = clubs.find(c => c.id === clubId);
+      // Jeśli operacja zwiększała budżet, to poprzednie saldo = obecne - kwota
+      // Jeśli operacja zmniejszała budżet, to poprzednie saldo = obecne - (-kwota) = obecne + kwota
+      prevBalance = club ? club.budget - amount : 0;
+    }
+    
+    const newLog = {
+      id: Math.random().toString(36).substr(2, 9),
+      date: logDate,
+      amount: amount,
+      type: amount >= 0 ? 'INCOME' as const : 'EXPENSE' as const,
+      description: description,
+      previousBalance: prevBalance
+    };
+
+    setClubs(prev => prev.map(c => 
+      c.id === clubId 
+        ? { ...c, financeHistory: [newLog, ...(c.financeHistory || [])].slice(0, 50) } 
+        : c
+    ));
+  }, [currentDate, clubs]);
 
   // Guard: śledzi ID maili już wysłanych w trakcie sesji (by nie duplikować przy stale closure)
   const sentMailIdsRef = React.useRef<Set<string>>(new Set());
@@ -410,11 +437,20 @@ const getOrGenerateSquad = useCallback((clubId: string): Player[] => {
       const seasonalAwardRank = standingsL1.findIndex(c => c.id === club.id) + 1 || 10;
       const nextSeasonInjection = FinanceService.calculateSeasonalIncome(newTier, newReputation, seasonalAwardRank);
 
+      const seasonalLog = {
+        id: Math.random().toString(36).substring(2, 9),
+        date: currentDate.toISOString().split('T')[0],
+        amount: nextSeasonInjection,
+        type: 'INCOME' as const,
+        description: `Zastrzyk finansowy (TV, Sponsoring, Nagrody)`
+      };
+
       return {
         ...club,
         leagueId: newLeagueId,
         reputation: newReputation,
         budget: club.budget + nextSeasonInjection,
+        financeHistory: [seasonalLog, ...(club.financeHistory || [])].slice(0, 50),
         stats: { points: 0, wins: 0, draws: 0, losses: 0, goalsFor: 0, goalsAgainst: 0, goalDifference: 0, played: 0, form: [] },
         isInPolishCup: false 
       };
@@ -1775,7 +1811,20 @@ const finalizeFreeAgentContract = useCallback((mailId: string) => {
     if (!playerToSign) return;
 
     // 1. Zabierz bonus z budżetu klubu
-    setClubs(prev => prev.map(c => c.id === userTeamId ? { ...c, budget: c.budget - bonus } : c));
+    setClubs(prev => prev.map(c => c.id === userTeamId ? { 
+      ...c, 
+      budget: c.budget - bonus,
+      financeHistory: [
+        {
+          id: Math.random().toString(36).substr(2, 9),
+          date: currentDate.toISOString().split('T')[0],
+          amount: -bonus,
+          type: 'EXPENSE' as const,
+          description: `Bonus za podpis: ${playerToSign.lastName}`
+        },
+        ...(c.financeHistory || [])
+      ].slice(0, 50)
+    } : c));
 
     // 2. Przygotuj dane piłkarza (nowy klub, pensja, data)
     const newEndDate = new Date(currentDate.getFullYear() + years, 5, 30).toISOString();
@@ -1877,7 +1926,7 @@ const finalizeFreeAgentContract = useCallback((mailId: string) => {
       setPlayers, setClubs, setLastMatchSummary, addRoundResults, applySimulationResult, setActiveMatchState, 
       setMessages, pendingNegotiations, setPendingNegotiations, finalizeFreeAgentContract, europeanStatus, setEuropeanStatus,
             markMessageRead, deleteMessage, setActiveTrainingId, confirmCupDraw, confirmCLDraw, activeGroupDraw,
-    confirmCLGroupDraw, confirmCLQFDraw, confirmCLSFDraw, confirmCLR16Draw, confirmSeasonEnd, clGroups, processBackgroundCupMatches, processCLMatchDay, sessionSeed, updatePlayer,toggleTransferList
+    confirmCLGroupDraw, confirmCLQFDraw, confirmCLSFDraw, confirmCLR16Draw, confirmSeasonEnd, clGroups, processBackgroundCupMatches, processCLMatchDay, sessionSeed, updatePlayer, toggleTransferList, addFinanceLog
     }}>
       {children}
     </GameContext.Provider>
