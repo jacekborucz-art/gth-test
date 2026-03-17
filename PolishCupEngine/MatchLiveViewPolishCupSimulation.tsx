@@ -45,6 +45,7 @@ const getFormationPowerPro = (
   attrKeys: (keyof PlayerAttributes)[], 
   positions: PlayerPosition[],
   weatherMod: number,
+  injuriesMap: Record<string, InjurySeverity> = {},
   instructions?: TacticalInstructions
 ) => {
     let tacticalMult = 1.0;
@@ -110,9 +111,11 @@ const fatigueMult = 0.12 + (pFatigue / 100) * 0.43; // Zakres: 0.12 (cond=0) →
     
     // ZMIANA PRO: Potencjał nieliniowy. Każdy punkt atrybutu powyżej 50 ma coraz większą wagę.
     // 1.15 zamiast 1.35 — łagodniejsza krzywa, niższe Tiery mają realne szanse na akcje
-    const powerBase = Math.pow(avgAttr, 1.15); 
+    const powerBase = Math.pow(avgAttr, 1.07); 
+    // Lekka kontuzja: gracz gra przez ból — bezpośrednia kara -6% wkładu w moc drużyny
+    const lightInjMult = injuriesMap[p.id] === InjurySeverity.LIGHT ? 0.94 : 1.0;
     
-    return sum + (powerBase * fatigueMult * weatherMod * integrityMult * numericalPenalty * generalDisorderMult);
+    return sum + (powerBase * fatigueMult * weatherMod * integrityMult * numericalPenalty * generalDisorderMult * lightInjMult);
   }, 0);
 };
 
@@ -163,10 +166,49 @@ export const MatchLiveViewPolishCupSimulation: React.FC = () => {
   
   const [isFinishing, setIsFinishing] = useState(false);
   const [isCelebratingGoal, setIsCelebratingGoal] = useState(false);
+  const [isUserPaused, setIsUserPaused] = useState(false);
   const [isTacticsOpen, setIsTacticsOpen] = useState(false);
   const [penaltyNotice, setPenaltyNotice] = useState<string | null>(null);
+  const [redCardNotice, setRedCardNotice] = useState<string | null>(null);
+  const [isCommentaryOpen, setIsCommentaryOpen] = useState(false);
+  const [instructionCooldowns, setInstructionCooldowns] = useState<Record<string, number>>({});
    const [showMissedPenalty, setShowMissedPenalty] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const debugLogRef = useRef<string[]>([]);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [debugDisplayData, setDebugDisplayData] = useState<{
+    minute: number; side: 'HOME' | 'AWAY'; shotPower: number; savePower: number;
+    goalProbability: number; goalRoll: number; isGoal: boolean; luckyBonus: number;
+    homeThreshold: number; awayThreshold: number; dynamicThreshold: number;
+    successPasses: number; diceRolls: number; pPower: number; aPower: number;
+  }[]>([]);
+  const liveDebugStatsRef = useRef<{
+    minute: number; side: 'HOME' | 'AWAY'; shotPower: number; savePower: number;
+    goalProbability: number; goalRoll: number; isGoal: boolean; luckyBonus: number;
+    homeThreshold: number; awayThreshold: number; dynamicThreshold: number;
+    successPasses: number; diceRolls: number; pPower: number; aPower: number;
+  }[]>([]);
+
+  const downloadDebugLog = () => {
+    const content = debugLogRef.current.join('\n');
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `debug_cup_match_${Date.now()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  useEffect(() => {
+    if (!showDebugPanel) return;
+    const interval = setInterval(() => {
+      setDebugDisplayData([...liveDebugStatsRef.current]);
+    }, 600);
+    return () => clearInterval(interval);
+  }, [showDebugPanel]);
  
 
 // NOWY SYSTEM KOMENTARZY
@@ -186,7 +228,7 @@ const penaltyPendingRef = useRef<null | { side: 'HOME' | 'AWAY', scorer: any, mi
     const home = clubs.find(c => c.id === fixture.homeTeamId)!;
     const away = clubs.find(c => c.id === fixture.awayTeamId)!;
     return {
-      fixture, homeClub: home, awayClub: away, homePlayers: players[home.id] || [], awayPlayers: players[away.id] || [], homeAdvantage: false, competition: 'CUP'
+      fixture, homeClub: home, awayClub: away, homePlayers: players[home.id] || [], awayPlayers: players[away.id] || [], homeAdvantage: 0.0015, competition: 'CUP'
     } as any;
   }, [userTeamId, clubs, fixtures, players, currentDate]);
 
@@ -230,11 +272,10 @@ const penaltyPendingRef = useRef<null | { side: 'HOME' | 'AWAY', scorer: any, mi
       setMatchState({
         fixtureId: ctx.fixture.id, minute: 0, period: 1, addedTime: 0, isPaused: true, isPausedForEvent: false, isHalfTime: false, isFinished: false,
         speed: 1, momentum: 5, momentumPulse: 0, homeScore: 0, awayScore: 0, homeLineup: lineups[ctx.homeClub.id], awayLineup: lineups[ctx.awayClub.id],
-        playedPlayerIds: [],
         homeFatigue: {}, awayFatigue: {}, homeInjuries: {}, awayInjuries: {}, playerYellowCards: {}, sentOffIds: [], homeRiskMode: {}, awayRiskMode: {},
         homeUpgradeProb: {}, awayUpgradeProb: {}, homeInjuryMin: {}, awayInjuryMin: {}, subsCountHome: 0, subsCountAway: 0, homeSubsHistory: [], awaySubsHistory: [],
         lastAiActionMinute: 0, logs: [{ id: 'cup_init', minute: 0, text: "Gwizdek sędziego! Zaczynamy bój o awans!", type: MatchEventType.GENERIC }],
-events: [], homeGoals: [], awayGoals: [], flashMessage: null, sessionSeed: Date.now(), tacticalImpact: 1.0,
+homeGoals: [], awayGoals: [], sessionSeed: Date.now(),
         isExtraTime: false, isPenalties: false, homePenaltyScore: undefined, awayPenaltyScore: undefined, penaltySequence: [],
         liveStats: {
           home: { shots: 0, shotsOnTarget: 0, corners: 0, fouls: 0, offsides: 0 },
@@ -242,6 +283,10 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null, sessionSeed: Date.
         },
         momentumSum: 0,
         momentumTicks: 0,
+        playedPlayerIds: [],
+        events: [],
+        flashMessage: null,
+        tacticalImpact: 0,
         // -> tutaj wstaw kod
        
   aiActiveShout: (() => {
@@ -287,16 +332,29 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null, sessionSeed: Date.
 
 
         lastGoalBoostMinute: -15,
-        // TUTAJ WSTAW TEN KOD (INICJALIZACJA IMPULSÓW TAKTYCZNYCH)
         activeTacticalBoost: 0,
         tacticalBoostExpiry: 0,
-        // KONIEC
+        // Post-goal suppression state — inicjalizacja
+        postGoalSuppressionDuration: 4,
+        postGoalPenaltyPct: 0.10,
+        comebackPower: 0,
+        comebackExpiry: 0,
+        comebackSide: null,
         userInstructions: {
 tempo: 'NORMAL',
 mindset: 'NEUTRAL',
 intensity: 'NORMAL',
 lastChangeMinute: -5,
-expiryMinute: 0
+expiryMinute: 0,
+tempoExpiry: -1,
+mindsetExpiry: -1,
+intensityExpiry: -1,
+tempoCooldown: -1,
+mindsetCooldown: -1,
+intensityCooldown: -1,
+tempoResponseFactor: 1.0,
+mindsetResponseFactor: 1.0,
+intensityResponseFactor: 1.0,
 }
       });
     }
@@ -326,10 +384,29 @@ expiryMinute: 0
   useEffect(() => {
     if (matchState && (matchState.homeScore > 0 || matchState.awayScore > 0) && !matchState.isPenalties) {
       setIsCelebratingGoal(true);
-      const timer = setTimeout(() => setIsCelebratingGoal(false), 3000);
-      return () => clearTimeout(timer);
+      const celebTimer = setTimeout(() => setIsCelebratingGoal(false), 3000);
+      return () => { clearTimeout(celebTimer); };
     }
   }, [matchState?.homeScore, matchState?.awayScore]);
+
+  // Wznowienie gry gdy animacja GOL kończy migać — tylko jeśli user nie pauzował ręcznie
+  useEffect(() => {
+    if (isCelebratingGoal) return;
+    if (isUserPaused) return;
+    setMatchState(prev => {
+      if (!prev || prev.isFinished || prev.isHalfTime || prev.isPenalties || prev.isPausedForEvent || prev.minute === 0) return prev;
+      return { ...prev, isPaused: false };
+    });
+  }, [isCelebratingGoal]);
+
+  useEffect(() => {
+    if (!redCardNotice) return;
+    const timer = setTimeout(() => {
+      setRedCardNotice(null);
+      // Gra pozostaje wstrzymana — gracz musi sam wznowić po obejrzeniu czerwonej
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [redCardNotice]);
 
 useEffect(() => {
     if (!matchState?.isPausedForEvent || !penaltyPendingRef.current) return;
@@ -369,7 +446,7 @@ useEffect(() => {
           awayScore: finalAScore,
           homeGoals: finalHGoals,
           awayGoals: finalAGoals,
-          isPaused: false,
+          isPaused: isScored ? true : false,  // po golu — pauza 2 sek; po pudле — wznów
           isPausedForEvent: false,
           logs: [{
             id: `PEN_RES_${minute}`,
@@ -380,6 +457,15 @@ useEffect(() => {
           }, penLog, ...latest.logs]
         };
       });
+      // Po trafieniu z karnego — auto-wznowienie po 5 sekundach
+      if (isScored) {
+        setTimeout(() => {
+          setMatchState(s => {
+            if (!s || s.isFinished || s.isPenalties) return s;
+            return { ...s, isPaused: false };
+          });
+        }, 5000);
+      }
     }, 3000);
     return () => clearTimeout(timer);
   }, [matchState?.isPausedForEvent]);
@@ -437,13 +523,71 @@ useEffect(() => {
     return 'SOLID';
   };
 
-  const getCounterTacticId = (style: string) => {
-    switch (style) {
-      case 'ALL-IN': return '5-3-2'; // Kontra na All-In
-      case 'BUS': return '4-3-3';    // Rozbijanie autobusu
-      case 'SOLID': return '4-1-4-1'; // Walka o dominację
-      default: return '4-2-3-1';
+  // Wybiera najlepszą defensywną taktykę dla AI grającego w 10 i reorganizuje XI.
+  // Priorytet:  6-3-1 (5+ def) → 5-4-1 / 4-5-1 (4 def) → 4-5-1 (3 def) → 4-4-2-DEF (fallback)
+  const pickDefensiveTacticForRedCard = (
+    lineup: Lineup,
+    teamPlayers: Player[],
+    sentOffIds: string[]
+  ): { tacticId: string; startingXI: (string | null)[] } => {
+    const activeIds = lineup.startingXI.filter(
+      (id): id is string => id !== null && !sentOffIds.includes(id)
+    );
+    const active = activeIds
+      .map(id => teamPlayers.find(p => p.id === id))
+      .filter((p): p is Player => p !== undefined);
+
+    const defCount = active.filter(p => p.position === PlayerPosition.DEF).length;
+
+    let tacticId = '4-4-2-DEF';
+    if (defCount >= 5)      tacticId = '6-3-1';
+    else if (defCount >= 4) tacticId = Math.random() < 0.5 ? '5-4-1' : '4-5-1';
+    else if (defCount >= 3) tacticId = '4-5-1';
+
+    const chosenTactic = TacticRepository.getById(tacticId);
+
+    const gk   = active.find(p => p.position === PlayerPosition.GK);
+    let defQ   = active.filter(p => p.position === PlayerPosition.DEF);
+    let midQ   = active.filter(p => p.position === PlayerPosition.MID);
+    let fwdQ   = active.filter(p => p.position === PlayerPosition.FWD);
+    let anyQ   = active.filter(p => p.position !== PlayerPosition.GK);
+
+    // Jeśli bramkarz NIE jest dostępny (czerwona kartka / kontuzja wylotem),
+    // wyznaczamy awaryjnego bramkarza — obrońca z najwyższym goalkeeping, a w br. braku inny zawodnik.
+    let emergencyGk: Player | undefined;
+    if (!gk && anyQ.length > 0) {
+      const sorted = [...anyQ].sort((a, b) => (b.attributes.goalkeeping ?? 0) - (a.attributes.goalkeeping ?? 0));
+      emergencyGk = sorted[0];
+      defQ = defQ.filter(p => p.id !== emergencyGk!.id);
+      midQ = midQ.filter(p => p.id !== emergencyGk!.id);
+      fwdQ = fwdQ.filter(p => p.id !== emergencyGk!.id);
+      anyQ = anyQ.filter(p => p.id !== emergencyGk!.id);
     }
+    const gkForSlot = gk ?? emergencyGk;
+
+    const consume = (primary: Player[], fallbackPool: Player[]): string | null => {
+      const p = primary.shift();
+      if (p) { anyQ = anyQ.filter(x => x.id !== p.id); return p.id; }
+      const fb = fallbackPool.find(x => anyQ.some(a => a.id === x.id));
+      if (fb) { anyQ = anyQ.filter(x => x.id !== fb.id); return fb.id; }
+      return null;
+    };
+
+    const newXI: (string | null)[] = chosenTactic.slots.map((_s, idx) => {
+      if (idx === 0) return gkForSlot?.id ?? null;
+      const role = chosenTactic.slots[idx].role;
+      if (role === PlayerPosition.DEF) return consume(defQ, anyQ);
+      if (role === PlayerPosition.MID) return consume(midQ, anyQ);
+      if (role === PlayerPosition.FWD) return consume(fwdQ, [...midQ, ...anyQ]);
+      return anyQ.shift()?.id ?? null;
+    });
+
+    // Uzupełnij puste sloty pozostałymi graczami
+    for (let i = 1; i < newXI.length; i++) {
+      if (newXI[i] === null && anyQ.length > 0) newXI[i] = anyQ.shift()!.id;
+    }
+
+    return { tacticId, startingXI: newXI };
   };
 
   const getPenaltyOrder = (lineup: Lineup, teamPlayers: Player[], sentOffIds: string[]) => {
@@ -536,36 +680,21 @@ useEffect(() => {
   }, [matchState?.isPenalties, ctx, isFinishing]);
 
   useEffect(() => {
-    if (!matchState || matchState.isPaused || matchState.isPausedForEvent || matchState.isFinished || matchState.isHalfTime || matchState.isPenalties || isFinishing || isCelebratingGoal || isTacticsOpen) return;
+    if (!matchState || matchState.isPaused || matchState.isPausedForEvent || matchState.isFinished || matchState.isHalfTime || matchState.isPenalties || isFinishing || isTacticsOpen) return;
 
     const interval = setInterval(() => {
       setMatchState(prev => {
         if (!prev || !ctx) return prev;
         
-        // --- TUTAJ WSTAW TEN KOD (Poprawka klamry i blokada licznika) ---
-        const endOfGameMin = prev.isExtraTime ? 120 : (90 + (prev.addedTime || 0));
-        if (prev.minute >= endOfGameMin) {
-           setIsCelebratingGoal(false);
-        }
-
         // Blokada: Jeśli mecz jest skończony lub czekamy na rzuty karne, nie inkrementuj minut
         if (prev.isFinished || prev.isPenalties) return prev;
-        // --- KONIEC KODU ---
 
    const nextMinute = prev.minute + 1;
         const currentSeed = prev.sessionSeed;
 
-        // TUTAJ WSTAW TEN KOD (ROZWIĄZANIE A: POST-GOAL COOL-OFF)
-        // Jeśli od bramki minęło mniej niż 4 minuty, blokujemy fazy ataku (czas wznowienia gry)
-        const isCoolingDown = nextMinute - prev.lastGoalBoostMinute < 4;
-        if (isCoolingDown) {
-            return { 
-                ...prev, 
-                minute: nextMinute, 
-                momentum: prev.momentum * 0.8, // Pasek powoli wraca do centrum
-                logs: prev.logs 
-            };
-        }
+        // POST-GOAL COOL-OFF: przez 2 minuty po golu pasek momentum lekko zwalnia w kierunku centrum.
+        // Symulacja (kartki, kontuzje, AI) działa normalnie — blokujemy tylko rozgrywkę pola karnego.
+        const isCoolingDown = nextMinute - prev.lastGoalBoostMinute < 2;
         let nextAwayLineup = { ...prev.awayLineup };
         let nextHomeLineup = { ...prev.homeLineup };
         let updatedHomeGoals = [...prev.homeGoals];
@@ -576,10 +705,10 @@ useEffect(() => {
         let nextAwayInjuries = { ...prev.awayInjuries };
         let nextMomentum = prev.momentum;
         // === BALANS 2025 – stałe do łatwego tuningu ===
-        const RED_CARD_CHANCE        = 0.00066;  // ~0.065 czerwonych/mecz
-        const SEVERE_INJURY_CHANCE   = 0.0002;   // (-20%)
-        const LIGHT_INJURY_CHANCE    = 0.0060;
-        const YELLOW_CARD_CHANCE     = 0.025;    // ~3.15 żółtych/mecz (normal)
+        const RED_CARD_CHANCE        = 0.00001;  // ~0.065 czerwonych/mecz
+        const SEVERE_INJURY_CHANCE   = 0.00004;   // (-20%)
+        const LIGHT_INJURY_CHANCE    = 0.0020;
+        const YELLOW_CARD_CHANCE     = 0.022;    // ~3.15 żółtych/mecz (normal)
         const BASE_EVENT_THRESHOLD   = 0.42;
         const BASE_GOAL_THRESHOLD    = 0.065;
         const MOMENTUM_INERTIA       = 0.88;
@@ -636,8 +765,8 @@ useEffect(() => {
         // STAGE 1 PRO: Tactical Analysis Speed (Best: 18min, Worst: 40min)
         const reactionDelay = 40 - ((aiCoach?.attributes.decisionMaking || 50) * 0.22);
         
-        // Blokada: Shout może wystąpić tylko jeśli minęło min. 15 minut od ostatniej dowolnej akcji AI
-         const randomShoutCD = 7 + Math.floor(Math.abs(Math.sin(prev.sessionSeed + prev.lastAiActionMinute)) * 9);
+        // Blokada: Shout może wystąpić tylko jeśli minęło min. 10-20 minut od ostatniej dowolnej akcji AI
+         const randomShoutCD = 10 + Math.floor(Math.abs(Math.sin(prev.sessionSeed + prev.lastAiActionMinute)) * 10);
         const canShoutNow = nextMinute >= prev.lastAiActionMinute + randomShoutCD;
 
         // -> tutaj wstaw kod (STAGE 1 PRO: Suma Mocy Jedenastki dla logiki Nastawienia)
@@ -698,10 +827,10 @@ useEffect(() => {
         const pPassSum = getSumAttr(userSide === 'HOME' ? nextHomeLineup.startingXI : nextAwayLineup.startingXI, userSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers, 'passing');
         const aPassSum = getSumAttr(userSide === 'HOME' ? nextAwayLineup.startingXI : nextHomeLineup.startingXI, userSide === 'HOME' ? ctx.awayPlayers : ctx.homePlayers, 'passing');
         
-        const pAttMid = (userSide === 'HOME' ? pTotalAtt : aAttSum) + (userSide === 'HOME' ? pPassSum : aPassSum);
-        const pDefMid = (userSide === 'HOME' ? pDefSum : aTotalDef) + (userSide === 'HOME' ? pPassSum : aPassSum);
-        const aAttMid = (userSide === 'AWAY' ? pTotalAtt : aAttSum) + (userSide === 'AWAY' ? pPassSum : aPassSum);
-        const aDefMid = (userSide === 'AWAY' ? pDefSum : aTotalDef) + (userSide === 'AWAY' ? pPassSum : aPassSum);
+        const pAttMid = pTotalAtt + pPassSum;
+        const pDefMid = pDefSum   + pPassSum;
+        const aAttMid = aAttSum   + aPassSum;
+        const aDefMid = aTotalDef + aPassSum;
 
         // -> TUTAJ WSTAW TEN KOD (STAGE 1 PRO: Sumy Techniki dla Intensywności Ostrożnej)
         const pTechSum = getSumAttr(userSide === 'HOME' ? nextHomeLineup.startingXI : nextAwayLineup.startingXI, userSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers, 'technique');
@@ -742,8 +871,8 @@ useEffect(() => {
         const awayHasGK = ctx.awayPlayers.find(p => p.id === nextAwayLineup.startingXI[0])?.position === PlayerPosition.GK;
 
         // Bazowe progi progresji (Faza 2)
-       let homeProgressionThreshold = 0.55;
-        let awayProgressionThreshold = 0.55;
+       let homeProgressionThreshold = 0.70;
+        let awayProgressionThreshold = 0.70;
 
         // === ZABURZENIA POZYCJI — dynamiczne progi progresji ===
         const homeDisorder = getPositionalDisorder(nextHomeLineup.startingXI, ctx.homePlayers, nextHomeLineup.tacticId);
@@ -779,8 +908,8 @@ useEffect(() => {
 
         // Eksponencjalna kara: 1 brak=+0.20 (gra w 10), 2 braki → próg 0.95 (gra w 9 = cud)
         const numericalPenaltyThreshold = (missing: number) => missing === 0 ? 0 : Math.pow(missing, 1.8) * 0.20;
-        homeProgressionThreshold = Math.min(0.95, homeProgressionThreshold + numericalPenaltyThreshold(homeMissing));
-        awayProgressionThreshold = Math.min(0.95, awayProgressionThreshold + numericalPenaltyThreshold(awayMissing));
+        homeProgressionThreshold = Math.min(0.85, homeProgressionThreshold + numericalPenaltyThreshold(homeMissing));
+        awayProgressionThreshold = Math.min(0.85, awayProgressionThreshold + numericalPenaltyThreshold(awayMissing));
 
         // === PREMIA DLA RYWALA GRAJĄCEGO PRZECIW OSŁABIONEMU SKŁADOWI ===
         // Im silniejszy atakujący vs osłabiony rywal, tym łatwiej mu atakować (progresywnie)
@@ -790,12 +919,12 @@ useEffect(() => {
         const repRatioBonus = (attackerRep: number, defenderRep: number) =>
             Math.min(1.5, Math.max(0.6, attackerRep / Math.max(1, defenderRep)));
         if (awayMissing > 0) {
-            const baseBonus = numericalPenaltyThreshold(awayMissing) * 0.25;
+            const baseBonus = numericalPenaltyThreshold(awayMissing) * 0.21;
             const strengthMult = repRatioBonus(ctx.homeClub.reputation, ctx.awayClub.reputation);
             homeProgressionThreshold = Math.max(0.25, homeProgressionThreshold - baseBonus * strengthMult);
         }
         if (homeMissing > 0) {
-            const baseBonus = numericalPenaltyThreshold(homeMissing) * 0.25;
+            const baseBonus = numericalPenaltyThreshold(homeMissing) * 0.21;
             const strengthMult = repRatioBonus(ctx.awayClub.reputation, ctx.homeClub.reputation);
             awayProgressionThreshold = Math.max(0.25, awayProgressionThreshold - baseBonus * strengthMult);
         }
@@ -843,6 +972,25 @@ useEffect(() => {
 
 
         const playerTacticId = userSide === 'HOME' ? prev.homeLineup.tacticId : prev.awayLineup.tacticId;
+
+        // === BONUS WALECZNOŚCI TIER3/TIER4 ("Chłopaki walczą") ===
+        // Słabszy klub grający defensywnie dostaje losowy bonus utrudniający faworytowi atak.
+        // Warunek: AI jest Tier3/4 (rep <= 5) vs gracz Tier1 (rep >= 8) + gra defensywnie.
+        const aiRepNow = aiSide === 'HOME' ? ctx.homeClub.reputation : ctx.awayClub.reputation;
+        const playerRepNow = userSide === 'HOME' ? ctx.homeClub.reputation : ctx.awayClub.reputation;
+        const aiTacticNow = TacticRepository.getById(aiSide === 'HOME' ? nextHomeLineup.tacticId : nextAwayLineup.tacticId);
+        const aiIsUltraDefensive = (currentAiShout?.mindset === 'DEFENSIVE' || aiTacticNow.defenseBias > 65);
+
+        if (aiRepNow <= 5 && playerRepNow >= 8 && aiIsUltraDefensive) {
+            // Losowy bonus 5–15% (różny każdą minutę — nieprzewidywalny)
+            const fightBonus = 0.05 + seededRng(currentSeed, nextMinute, 3131) * 0.10;
+            // Podnosimy próg dla atakującego gracza (trudniej wejść w pole karne)
+            if (userSide === 'HOME') {
+                homeProgressionThreshold = Math.min(0.95, homeProgressionThreshold + fightBonus);
+            } else {
+                awayProgressionThreshold = Math.min(0.95, awayProgressionThreshold + fightBonus);
+            }
+        }
 
         let coachEfficiency = 1.0; 
         if (aiCoach) {
@@ -1006,12 +1154,12 @@ if (prev.isExtraTime && nextMinute >= 121) {
         if (instr.tempo === 'FAST') { pActionMod += 0.05; pFatigueMod += 0.03; }
 
         // 2. NASTAWIENIE
-        if (instr.mindset === 'OFFENSIVE') { 
+        if (instr.mindset === 'OFFENSIVE' && nextMinute <= instr.expiryMinute) { 
            pGoalMod += (0.005 + seededRng(currentSeed, nextMinute, 11) * 0.045); 
            // Ryzyko z tyłu tylko z silniejszym/równym rywalem
            if (ctx.awayClub.reputation >= ctx.homeClub.reputation) pRiskMod += 0.02 + seededRng(currentSeed, nextMinute, 22) * 0.03;
         }
-        if (instr.mindset === 'DEFENSIVE') {
+        if (instr.mindset === 'DEFENSIVE' && nextMinute <= instr.expiryMinute) {
            pGoalMod -= (0.01 + seededRng(currentSeed, nextMinute, 33) * 0.04);
            pRiskMod -= (0.005 + seededRng(currentSeed, nextMinute, 44) * 0.045);
         }
@@ -1027,7 +1175,9 @@ if (prev.isExtraTime && nextMinute >= 121) {
         }
         let aiAdvantageFactor = 1.0;
         // POPRAWKA: pRiskMod zwiększa próg gola dla rywala (kara za ofensywę)
-const aiGoalThresholdBoost = pRiskMod * (ctx.awayClub.reputation >= ctx.homeClub.reputation ? 1.2 : 0.8);
+const aiClubRep = aiSide === 'HOME' ? ctx.homeClub.reputation : ctx.awayClub.reputation;
+const playerClubRep = userSide === 'HOME' ? ctx.homeClub.reputation : ctx.awayClub.reputation;
+const aiGoalThresholdBoost = pRiskMod * (aiClubRep >= playerClubRep ? 0.06 : 0.04);
         let aiGoalMultiplier = 1.0;
         
         // Specjalny mnożnik: ALL-IN gracza vs TRAP AI = Śmiercionośna kontra AI
@@ -1045,11 +1195,18 @@ const aiGoalThresholdBoost = pRiskMod * (ctx.awayClub.reputation >= ctx.homeClub
            aiAdvantageFactor = aiGoalMultiplier;
         }
 
-         let hScore = prev.homeScore;
+        let hScore = prev.homeScore;
                 let aScore = prev.awayScore;
                 let eventType: MatchEventType | undefined;
                 let eventSide: 'HOME' | 'AWAY' = 'HOME';
                 let currentScorerName = "";
+                // Lokalne zmienne dla post-goal state (bezpieczny odczyt z typowanego stanu)
+                let nextLastGoalBoostMinute = prev.lastGoalBoostMinute;
+                let nextPostGoalSuppressionDuration = (prev as any).postGoalSuppressionDuration ?? 4;
+                let nextPostGoalPenaltyPct = (prev as any).postGoalPenaltyPct ?? 0.10;
+                let nextComebackPower = (prev as any).comebackPower ?? 0;
+                let nextComebackExpiry = (prev as any).comebackExpiry ?? 0;
+                let nextComebackSide: 'HOME' | 'AWAY' | null = (prev as any).comebackSide ?? null;
      
         // --- GLOBAL PENALTY LOGIC (Z MODYFIKATOREM INTENSYWNOŚCI) ---
         let penaltyThreshold = (1 / 327);
@@ -1108,28 +1265,39 @@ const aiGoalThresholdBoost = pRiskMod * (ctx.awayClub.reputation >= ctx.homeClub
         const cardRoll   = seededRng(currentSeed, nextMinute, 9991);
         const injuryRoll = seededRng(currentSeed, nextMinute, 9993);
 
+        // ===== DEBUG HEADER – minuta =====
+        debugLogRef.current.push(`\n=== MIN ${nextMinute} | seed=${currentSeed} | incidentSide=${incidentSide} ===`);
+        debugLogRef.current.push(`  cardRoll=${cardRoll.toFixed(8)}   injuryRoll=${injuryRoll.toFixed(8)}`);
+
         // Efektywne szanse na kartki – skalowane agresją strony która popełnia faul
         let effectiveRedChance    = RED_CARD_CHANCE;    // ~0.065 czerwonych/mecz (normalnie)
         let effectiveYellowChance = YELLOW_CARD_CHANCE; // ~3.15 żółtych/mecz (normalnie)
 
         if (sideIntensity === 'AGGRESSIVE') {
-            effectiveRedChance    *= 1.5;  // +50% czerwone przy agresji
-            effectiveYellowChance *= 2.0;  // +100% żółte przy agresji (główna kara)
+            effectiveRedChance    *= 1.50;  // +50% czerwone przy agresji
+            effectiveYellowChance *= 2.5;  // +100% żółte przy agresji (główna kara)
         } else if (sideIntensity === 'CAUTIOUS') {
             effectiveRedChance    *= 0.5;
             effectiveYellowChance *= 0.5;
         }
-
-        // Modyfikator kontuzji zależny od intensywności gry OBU drużyn
+        // Modyfikator kontuzji zależny od intensywności gry
+        // BUGFIX: mnożnik aktywuje się TYLKO gdy strona popełniająca faul (incidentSide) jest agresywna.
+        // Poprzedni warunek || otherIntensity powodował że mnożnik 1.2-1.7 był aktywny niemal zawsze.
         let injuryIntensityMult = 1.0;
-        if (sideIntensity === 'AGGRESSIVE' || otherIntensity === 'AGGRESSIVE')
-            injuryIntensityMult = 1.5 + seededRng(currentSeed, nextMinute, 7777) * 0.5; // ×1.5–2.0 przy agresji
+        if (sideIntensity === 'AGGRESSIVE' && otherIntensity === 'AGGRESSIVE')
+            injuryIntensityMult = 1.2 + seededRng(currentSeed, nextMinute, 7777) * 0.3; // obie agresywne: ×1.2–1.5
+        else if (sideIntensity === 'AGGRESSIVE')
+            injuryIntensityMult = 1.1 + seededRng(currentSeed, nextMinute, 7777) * 0.15; // tylko incidentSide agresywna: ×1.1–1.25
         else if (sideIntensity === 'CAUTIOUS' && otherIntensity === 'CAUTIOUS')
             injuryIntensityMult = 0.4; // obie ostrożne → −60% kontuzji
         else if (sideIntensity === 'CAUTIOUS' || otherIntensity === 'CAUTIOUS')
             injuryIntensityMult = 0.7; // jedna ostrożna → −30% kontuzji
         // effectiveSevereBonus dodawany do progu kontuzji (por. formuła poniżej)
         const effectiveSevereBonus = SEVERE_INJURY_CHANCE * Math.max(0, injuryIntensityMult - 1.0);
+
+        // ===== DEBUG =====
+        debugLogRef.current.push(`  sideIntensity=${sideIntensity} | effectiveRedChance=${effectiveRedChance.toFixed(8)} | effectiveYellowChance=${effectiveYellowChance.toFixed(8)}`);
+        debugLogRef.current.push(`  injuryIntensityMult=${injuryIntensityMult.toFixed(4)} | effectiveSevereBonus=${effectiveSevereBonus.toFixed(8)}`);
 
 
         // === COLLAPSE CHECK: skanuje WSZYSTKICH graczy obu drużyn każdą minutę ===
@@ -1155,6 +1323,7 @@ const aiGoalThresholdBoost = pRiskMod * (ctx.awayClub.reputation >= ctx.homeClub
 
                     const roll = seededRng(currentSeed, nextMinute, slotIdx + 1234 + (side === 'HOME' ? 0 : 500));
                     if (roll < collapseProb) {
+                        debugLogRef.current.push(`  >>>>>> !!! COLLAPSE FIRED !!! player=${p.lastName} cond=${cond.toFixed(2)} collapseProb=${collapseProb} roll=${roll.toFixed(8)} min=${nextMinute}`);
                         // Gracz pada z wyczerpania — groźna kontuzja, schodzi z boiska
                         if (side === 'HOME') {
                             nextHomeInjuries[id] = InjurySeverity.SEVERE;
@@ -1202,6 +1371,9 @@ const aiGoalThresholdBoost = pRiskMod * (ctx.awayClub.reputation >= ctx.homeClub
 
 if (targetPlayer && !prev.isPausedForEvent) {
 
+    // ===== DEBUG – gracz wylosowany =====
+    debugLogRef.current.push(`  targetPlayer=${targetPlayer.lastName} | storedCondition=${targetPlayer.condition} | fatigueMapVal=${fatigueMapForSide[targetPlayer.id] ?? 'undefined'}`);
+
     // Progresywna kara za zmęczenie — łączne ryzyko kontuzji (severe+light) na minutę:
     //   cond >= 75%: baseline (~0.84%/min)
     //   cond   74%: +3%  → ~3.84%/min
@@ -1237,6 +1409,12 @@ if (targetPlayer && !prev.isPausedForEvent) {
     // Łączna szansa na zdarzenie ≈ 3.3% na minutę na gracza (realistycznie niska)
     // =====================================================================
 
+    // ===== DEBUG – progi dla tego gracza =====
+    debugLogRef.current.push(`  targetCondition=${targetCondition.toFixed(2)} | totalInjuryChance=${totalInjuryChance.toFixed(8)} | sevRatio=${sevRatio.toFixed(6)}`);
+    debugLogRef.current.push(`  effectiveSevereChance=${effectiveSevereChance.toFixed(8)} | effectiveLightChance=${effectiveLightChance.toFixed(8)}`);
+    debugLogRef.current.push(`  CHECK: cardRoll(${cardRoll.toFixed(8)}) < RED(${effectiveRedChance.toFixed(8)})? ${cardRoll < effectiveRedChance}`);
+    debugLogRef.current.push(`  CHECK: injuryRoll(${injuryRoll.toFixed(8)}) < SEVERE+BONUS(${(effectiveSevereChance + effectiveSevereBonus).toFixed(8)})? ${injuryRoll < effectiveSevereChance + effectiveSevereBonus}`);
+
     // 1. CZERWONA KARTKA – niezależny roll
     if (cardRoll < effectiveRedChance) {
         nextSentOffIds.push(targetPlayer.id);
@@ -1257,7 +1435,36 @@ if (targetPlayer && !prev.isPausedForEvent) {
             playerName: dispName
         }, ...updatedLogs];
 
-        if (incidentSide === userSide) nextIsPaused = true;
+        debugLogRef.current.push(`  >>>>>> !!! RED CARD FIRED !!! player=${dispName} min=${nextMinute} cardRoll=${cardRoll.toFixed(8)} RED_CHANCE=${effectiveRedChance.toFixed(8)}`);
+
+        if (incidentSide === userSide) {
+          nextIsPaused = true;
+          setTimeout(() => setRedCardNotice(dispName), 0);
+        }
+
+        if (incidentSide === aiSide) {
+          // AI automatycznie przestawia się na defensywę po czerwonej kartce
+          currentAiShout = {
+            id: `RED_CARD_DEFENSIVE_${nextMinute}`,
+            expiryMinute: 999,
+            mindset: 'DEFENSIVE' as any,
+            tempo: 'SLOW' as any,
+            intensity: 'CAUTIOUS' as any
+          };
+          const aiLineupNow = aiSide === 'HOME' ? nextHomeLineup : nextAwayLineup;
+          const aiPlayersNow = aiSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers;
+          const defChoice = pickDefensiveTacticForRedCard(aiLineupNow, aiPlayersNow, nextSentOffIds);
+          if (aiSide === 'HOME') nextHomeLineup = { ...nextHomeLineup, tacticId: defChoice.tacticId, startingXI: defChoice.startingXI as any };
+          else nextAwayLineup = { ...nextAwayLineup, tacticId: defChoice.tacticId, startingXI: defChoice.startingXI as any };
+          const wasGkSentOff = targetPlayer.position === PlayerPosition.GK;
+          const emergencyGkPlayer = wasGkSentOff
+            ? (aiSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers).find(p => p.id === defChoice.startingXI[0])
+            : null;
+          const redLogText = wasGkSentOff && emergencyGkPlayer
+            ? `Trener ${aiClub.shortName} wyznacza awaryjnego bramkarza: ${emergencyGkPlayer.lastName} (${defChoice.tacticId}) — desperacja!`
+            : `Trener ${aiClub.shortName} ustawia drużynę defensywnie (${defChoice.tacticId}) — gra w 10!`;
+          updatedLogs = [{ id: `ai_red_def_${nextMinute}`, minute: nextMinute, text: redLogText, type: MatchEventType.GENERIC, teamSide: aiSide }, ...updatedLogs];
+        }
     }
 
     // 2. GROŹNA KONTUZJA (niezależny roll, skalowane zmęczeniem + agresją)
@@ -1279,6 +1486,8 @@ if (targetPlayer && !prev.isPausedForEvent) {
             playerName: targetPlayer.lastName
         }, ...updatedLogs];
 
+        debugLogRef.current.push(`  >>>>>> !!! SEVERE INJURY FIRED !!! player=${targetPlayer.lastName} min=${nextMinute} cond=${targetCondition.toFixed(2)} injuryRoll=${injuryRoll.toFixed(8)} sevChance=${(effectiveSevereChance+effectiveSevereBonus).toFixed(8)}`);
+
         nextIsPaused = true;  // zatrzymanie gry – najcięższe zdarzenie
     }
 
@@ -1290,9 +1499,11 @@ if (targetPlayer && !prev.isPausedForEvent) {
             nextAwayInjuries[targetPlayer.id] = InjurySeverity.LIGHT;
         }
 
-        // logika spadku kondycji – bez zmian
+        // BUGFIX: conditionDrop zmniejszone z 25-45 do 5-10 pkt.
+        // Poprzednia wartość (45 - strength/100*20 = ~25-45) powodowała kaskadę:
+        // po 2-3 lekkich kontuzjach kondycja spadała < 30, wyzwalając Collapse Check (SEVERE).
         const pStrength = targetPlayer.attributes.strength || 50;
-        const conditionDrop = 45 - (pStrength / 100 * 20);
+        const conditionDrop = 5 + ((100 - pStrength) / 100) * 5; // zakres: 5.0 (str=100) → 10.0 (str=0)
 
         if (incidentSide === 'HOME') {
             localHomeFatigue[targetPlayer.id] = Math.max(0, (localHomeFatigue[targetPlayer.id] ?? targetPlayer.condition) - conditionDrop);
@@ -1332,7 +1543,34 @@ if (targetPlayer && !prev.isPausedForEvent) {
                 playerName: targetPlayer.lastName
             }, ...updatedLogs];
 
-            if (incidentSide === userSide) nextIsPaused = true;
+            if (incidentSide === userSide) {
+              nextIsPaused = true;
+              setTimeout(() => setRedCardNotice(targetPlayer.lastName), 0);
+            }
+
+            if (incidentSide === aiSide) {
+              // AI automatycznie przestawia się na defensywę po drugiej żółtej
+              currentAiShout = {
+                id: `RED2_CARD_DEFENSIVE_${nextMinute}`,
+                expiryMinute: 999,
+                mindset: 'DEFENSIVE' as any,
+                tempo: 'SLOW' as any,
+                intensity: 'CAUTIOUS' as any
+              };
+              const aiLineupNow = aiSide === 'HOME' ? nextHomeLineup : nextAwayLineup;
+              const aiPlayersNow = aiSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers;
+              const defChoice = pickDefensiveTacticForRedCard(aiLineupNow, aiPlayersNow, nextSentOffIds);
+              if (aiSide === 'HOME') nextHomeLineup = { ...nextHomeLineup, tacticId: defChoice.tacticId, startingXI: defChoice.startingXI as any };
+              else nextAwayLineup = { ...nextAwayLineup, tacticId: defChoice.tacticId, startingXI: defChoice.startingXI as any };
+              const wasGkSentOff2 = targetPlayer.position === PlayerPosition.GK;
+              const emergencyGkPlayer2 = wasGkSentOff2
+                ? (aiSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers).find(p => p.id === defChoice.startingXI[0])
+                : null;
+              const red2LogText = wasGkSentOff2 && emergencyGkPlayer2
+                ? `Trener ${aiClub.shortName} wyznacza awaryjnego bramkarza: ${emergencyGkPlayer2.lastName} (${defChoice.tacticId}) — desperacja!`
+                : `Trener ${aiClub.shortName} ustawia drużynę defensywnie (${defChoice.tacticId}) — gra w 10!`;
+              updatedLogs = [{ id: `ai_red2_def_${nextMinute}`, minute: nextMinute, text: red2LogText, type: MatchEventType.GENERIC, teamSide: aiSide }, ...updatedLogs];
+            }
         } else {
             updatedLogs = [{
                 id: `YEL_${nextMinute}`,
@@ -1350,7 +1588,13 @@ if (targetPlayer && !prev.isPausedForEvent) {
 
     // --- FAZA 1: WALKA O INICJATYWĘ (6 MIKRO-BITEW) ---
         const weatherMod = env.weather.description.toLowerCase().includes('deszcz') ? 0.88 : 1.0;
-        const humanFactor = () => 0.70 + (seededRng(currentSeed, nextMinute, Math.random()) * 0.60); 
+        // humanFactor: deterministyczny chaos — offset rośnie per-wywołanie, więc każda "bitwa" jest inna,
+        // ale wyniki są powtarzalne dla tego samego seeda + minuty.
+        let _humanFactorCallCount = 0;
+        const humanFactor = () => {
+            _humanFactorCallCount++;
+            return 0.70 + (seededRng(currentSeed, nextMinute, _humanFactorCallCount * 137) * 0.60);
+        };
 
         const battleCategories: (keyof PlayerAttributes)[][] = [
             ['stamina'], ['strength'], ['technique'], ['pace'], ['passing'], ['vision']
@@ -1360,13 +1604,13 @@ if (targetPlayer && !prev.isPausedForEvent) {
         let awayWins = 0;
 
         battleCategories.forEach((attrs, i) => {
-            const hPwr = getFormationPowerPro(nextHomeLineup.startingXI, ctx.homePlayers, localHomeFatigue, attrs, [PlayerPosition.MID, PlayerPosition.DEF], weatherMod) * humanFactor();
-            const aPwr = getFormationPowerPro(nextAwayLineup.startingXI, ctx.awayPlayers, localAwayFatigue, attrs, [PlayerPosition.MID, PlayerPosition.DEF], weatherMod) * humanFactor();
+            const hPwr = getFormationPowerPro(nextHomeLineup.startingXI, ctx.homePlayers, localHomeFatigue, attrs, [PlayerPosition.MID, PlayerPosition.DEF], weatherMod, nextHomeInjuries) * humanFactor();
+            const aPwr = getFormationPowerPro(nextAwayLineup.startingXI, ctx.awayPlayers, localAwayFatigue, attrs, [PlayerPosition.MID, PlayerPosition.DEF], weatherMod, nextAwayInjuries) * humanFactor();
             
            // ZMIANA PRO: Rachunek prawdopodobieństwa. Moc to nie gwarancja, to szansa.
             const totalPower = hPwr + aPwr;
             const homeWinProb = hPwr / totalPower;
-            const matchChaos = 0.85 + (seededRng(currentSeed, nextMinute, i) * 0.30); // 15% chaosu meczowego
+            const matchChaos = 0.80 + (seededRng(currentSeed, nextMinute, i) * 0.40); // chaos: 0.80–1.20 (mniejsza deklasacja silniejszego)
 
             if (seededRng(currentSeed, nextMinute, i + 100) * matchChaos < homeWinProb) { 
                 homeWins++; 
@@ -1421,12 +1665,21 @@ if (targetPlayer && !prev.isPausedForEvent) {
             eventSide = homeWins > awayWins ? 'HOME' : 'AWAY';
         }
         // --- FAZA 2: PROGRESJA ATAKU (5-12 RZUTÓW) ---
-        const diceRolls = 5 + Math.floor(seededRng(currentSeed, nextMinute, 444) * 8);
+        ///const diceRolls = 5 + Math.floor(seededRng(currentSeed, nextMinute, 444) * 1.2);
+
+        // LOSOWY MULTIPLIKATOR: od 0.5 do 1.2
+const diceMultiplier = 0.5 + seededRng(currentSeed, nextMinute, 444) * 0.7;
+
+// DiceRolls nadal bazuje na „5 + [losowe]”, ale teraz skaluje się w zakresie 0.5–1.2
+const diceRolls = 5 + Math.floor(seededRng(currentSeed, nextMinute, 445) * 2.0 * diceMultiplier);
+
+
+
         let successfulPasses = 0;
         
         for (let i = 0; i < diceRolls; i++) {
-            const attPwr = getFormationPowerPro(eventSide === 'HOME' ? nextHomeLineup.startingXI : nextAwayLineup.startingXI, eventSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers, eventSide === 'HOME' ? localHomeFatigue : localAwayFatigue, ['attacking', 'passing'], [PlayerPosition.MID, PlayerPosition.FWD], weatherMod);
-            const defPwr = getFormationPowerPro(eventSide === 'HOME' ? nextAwayLineup.startingXI : nextHomeLineup.startingXI, eventSide === 'HOME' ? ctx.awayPlayers : ctx.homePlayers, eventSide === 'HOME' ? localAwayFatigue : localHomeFatigue, ['defending', 'positioning'], [PlayerPosition.DEF, PlayerPosition.MID, PlayerPosition.GK], weatherMod);
+            const attPwr = getFormationPowerPro(eventSide === 'HOME' ? nextHomeLineup.startingXI : nextAwayLineup.startingXI, eventSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers, eventSide === 'HOME' ? localHomeFatigue : localAwayFatigue, ['attacking', 'passing'], [PlayerPosition.MID, PlayerPosition.FWD], weatherMod, eventSide === 'HOME' ? nextHomeInjuries : nextAwayInjuries);
+            const defPwr = getFormationPowerPro(eventSide === 'HOME' ? nextAwayLineup.startingXI : nextHomeLineup.startingXI, eventSide === 'HOME' ? ctx.awayPlayers : ctx.homePlayers, eventSide === 'HOME' ? localAwayFatigue : localHomeFatigue, ['defending', 'positioning'], [PlayerPosition.DEF, PlayerPosition.MID, PlayerPosition.GK], weatherMod, eventSide === 'HOME' ? nextAwayInjuries : nextHomeInjuries);
             
             if ((attPwr * humanFactor()) > (defPwr * humanFactor())) {
                 successfulPasses++;
@@ -1456,12 +1709,7 @@ if (targetPlayer && !prev.isPausedForEvent) {
             updatedLogs = [{ id: `intercept_${nextMinute}`, minute: nextMinute, text: `Genialny przechwyt i błyskawiczna kontra ${eventSide === 'HOME' ? ctx.awayClub.shortName : ctx.homeClub.shortName}!`, type: MatchEventType.MIDFIELD_CONTROL, teamSide: eventSide === 'HOME' ? 'AWAY' : 'HOME' }, ...updatedLogs];
             successfulPasses = 0; // Przerwij strzał w tej minucie
 
-            nextIsPausedForEvent = true; 
-            setTimeout(() => { setMatchState(s => s ? {...s, isPausedForEvent: false} : s) }, 400);
-        }
-        
-// MIEJSCE B: dodatkowy event przy przechwycie
-        if (interceptRoll < 0.15 && successfulPasses < (diceRolls * 0.4)) {
+            // Dodatkowy komentarz przy przechwycie (MIEJSCE B — połączone z MIEJSCEM A, bez duplikatu)
             const interceptEventRoll = seededRng(currentSeed, nextMinute, 3333);
             const interceptEventType = interceptEventRoll < 0.4
                 ? MatchEventType.FOUL
@@ -1492,7 +1740,30 @@ if (targetPlayer && !prev.isPausedForEvent) {
  // REKALIBRACJA PRO: Obniżamy bazowy próg z 0.55 na 0.42. 
         // Przy równych siłach szansa na wejście w pole karne rośnie z ~37% do ~65%.
         const activeBaseThreshold = eventSide === 'HOME' ? homeProgressionThreshold : awayProgressionThreshold;
-        let dynamicThreshold = Math.max(0.25, activeBaseThreshold - momentumBonus);
+       let dynamicThreshold = Math.max(0.25, (activeBaseThreshold - momentumBonus) * 1.05);
+// Podnosimy szanse słabszej drużyny (underdog) o ~15% poprzez obniżenie progu
+const isUnderdog = eventSide === 'HOME' ? powerDiff < 0 : powerDiff > 0;
+const undedogThresholdMultiplier = isUnderdog ? 0.85 : 1.0;
+dynamicThreshold *= undedogThresholdMultiplier;
+
+        // Kontra słabszej drużyny vs ofensywna taktyka rywala:
+        // Jeśli atakuje underdog, a broniący rywal gra OFFENSIVE / FAST → otwarte przestrzenie → bonus kontry
+        if (isUnderdog) {
+            const defenderSide = eventSide === 'HOME' ? 'AWAY' : 'HOME';
+            const defMindset = defenderSide === userSide ? prev.userInstructions.mindset : (currentAiShout?.mindset || 'NEUTRAL');
+            const defTempo = defenderSide === userSide ? prev.userInstructions.tempo : (currentAiShout?.tempo || 'NORMAL');
+            let counterBonus = 0;
+            if (defMindset === 'OFFENSIVE') counterBonus += 0.04;
+            if (defTempo === 'FAST') counterBonus += 0.03;
+            if (counterBonus > 0) dynamicThreshold = Math.max(0.20, dynamicThreshold - counterBonus);
+            // Ekstra bonus kontry dla Tier3/4 atakującego Tier1 — walka o każdy centymetr boiska
+            const attackingClubRep = eventSide === 'HOME' ? ctx.homeClub.reputation : ctx.awayClub.reputation;
+            const defendingClubRep = eventSide === 'HOME' ? ctx.awayClub.reputation : ctx.homeClub.reputation;
+            if (attackingClubRep <= 5 && defendingClubRep >= 8) {
+                const extraCounterBonus = 0.05 + seededRng(currentSeed, nextMinute, 4242) * 0.05; // 5–10%
+                dynamicThreshold = Math.max(0.20, dynamicThreshold - extraCounterBonus);
+            }
+        }
 
         // Podłączenie pActionMod gracza: FAST obniża próg ~4.7%, SLOW podnosi ~5.3%, AGGRESSIVE daje mały bonus
         // Działa tylko gdy atakuje strona gracza (eventSide === userSide)
@@ -1507,21 +1778,22 @@ if (targetPlayer && !prev.isPausedForEvent) {
            dynamicThreshold = Math.max(0.25, dynamicThreshold - aiGoalThresholdBoost);
         }
 
-        const timeSinceGoal = nextMinute - prev.lastGoalBoostMinute;
+        const timeSinceGoal = nextMinute - nextLastGoalBoostMinute;
         const goalDiff = Math.abs(hScore - aScore);
         const leads = (eventSide === 'HOME' && hScore > aScore) || (eventSide === 'AWAY' && aScore > hScore);
 
-           // 1. Logika Nasycenia (PRO): Łagodniejszy mnożnik, by faworyt nie przestawał grać przy 2:0.
-        if (leads && goalDiff >= 3) {
-            const satietyFactor = 1 + (goalDiff - 1) * 0.54; 
-            dynamicThreshold *= satietyFactor;
+           // 1. Logika Nasycenia (PRO): zaczyna od 2:0, łagodna krzywa bez twardego blokowania.
+        // goalDiff=2 → ×1.17 | diff=3 → ×1.34 | diff=4 → ×1.51 | diff=5+ → cap 0.95
+        if (leads && goalDiff >= 2) {
+            const satietyFactor = 1 + (goalDiff - 1) * 0.17;
+            dynamicThreshold = Math.min(0.95, dynamicThreshold * satietyFactor);
             // --- BOOST: bezpośredni losowy wzrost momentum rywala po 5. bramce ---
             if (goalDiff >= 5) {
                 const momentumBoost = 18 + Math.random() * 12; // 18–30
                 if (eventSide === 'HOME') {
-                    prev.momentum = Math.max(prev.momentum - momentumBoost, -100);
+                    nextMomentum = Math.max(nextMomentum - momentumBoost, -100);
                 } else {
-                    prev.momentum = Math.min(prev.momentum + momentumBoost, 100);
+                    nextMomentum = Math.min(nextMomentum + momentumBoost, 100);
                 }
             }
         }
@@ -1532,20 +1804,13 @@ if (targetPlayer && !prev.isPausedForEvent) {
             dynamicThreshold *= desperationBoost;
         }
 
-        // 3. Dodatkowy "Cool-off" po golu (przez 10 minut trudniej o kolejny "cios za ciosem")
-        if (timeSinceGoal < 10) {
-            dynamicThreshold *= 1.15;
-        }
-
-        // 3. Bazowy system Post-Goal Suppression (Fatigue/Celebration)
-        const suppressionDuration = (prev as any).postGoalSuppressionDuration || 15;
-        if (timeSinceGoal < suppressionDuration) {
-           const penalty = (prev as any).postGoalPenaltyPct || 0.2;
-           dynamicThreshold *= (1 + penalty); 
+        // Post-Goal Suppression: jeden spójny system (4-8 minut, 2-20%), zamiast dwóch nakładających się
+        if (timeSinceGoal < nextPostGoalSuppressionDuration) {
+           dynamicThreshold *= (1 + nextPostGoalPenaltyPct);
         }
        
        const currentThreshold = dynamicThreshold;
-        if (successfulPasses / diceRolls > currentThreshold) {
+        if (!isCoolingDown && successfulPasses / diceRolls > currentThreshold) {
             const attTeam = eventSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers;
             const defTeam = eventSide === 'HOME' ? ctx.awayPlayers : ctx.homePlayers;
             const attLineup = eventSide === 'HOME' ? nextHomeLineup.startingXI : nextAwayLineup.startingXI;
@@ -1562,7 +1827,7 @@ if (targetPlayer && !prev.isPausedForEvent) {
             const scorerFatigue = (eventSide === 'HOME' ? localHomeFatigue : localAwayFatigue)[scorer.id] ?? scorer.condition;
             // Floor 0.38 zamiast 0.50: kontuzjowany strzelec nie strzela pełną siłą
             const scorerFatigueMod = Math.max(0.38, scorerFatigue / 100);
-            const shotPower = (scorer.attributes.finishing * 0.8 + scorer.attributes.dribbling * 0.2) * humanFactor() * 1.1 * randomShot * scorerFatigueMod;
+            const shotPower = (scorer.attributes.finishing * 0.8 + scorer.attributes.dribbling * 0.2) * humanFactor() * 0.88 * randomShot * scorerFatigueMod;
             
             // Zmęczenie bramkarza obniża reflexy i decyzyjność przy wyjściu:
             // cond=100→1.00, cond=80→0.88, cond=60→0.76, cond=40→0.64 (nie spada poniżej 0.55)
@@ -1587,7 +1852,66 @@ if (targetPlayer && !prev.isPausedForEvent) {
   log.type === MatchEventType.GOAL ||
   log.type === MatchEventType.PENALTY_MISSED
 ));
-         if (shotPower > savePower && !wasPenaltyThisMinute) {
+        // Współczynnik konwersji probabilistyczny: nawet dominujący napastnik nie strzela za każdym razem.
+        // Tier 1 (fin~75) vs Tier 4 GK (gk~45) → ~42% | Tier 1 vs Tier 1 GK → ~35% | Tier 4 vs Tier 1 GK → ~27%
+        const shootingClubRep = eventSide === 'HOME' ? ctx.homeClub.reputation : ctx.awayClub.reputation;
+        let luckyBonus = 0;
+        if (shootingClubRep <= 7) {
+            // "Strzał życia" — rzadki losowy bonus dla drużyn Tier 2/3/4
+            // Tier 4 (rep≤3): 18% szans | Tier 3 (rep 4-5): 13% | Tier 2 (rep 6-7): 8%
+            const luckActivationRoll = seededRng(currentSeed, nextMinute, 7171);
+            const luckChance = shootingClubRep <= 3 ? 0.18 : shootingClubRep <= 5 ? 0.13 : 0.08;
+            if (luckActivationRoll < luckChance) {
+                // Bonus 1%–50%: rozkład z przewagą małych wartości (pow 0.6), rzadko duże
+                const bonusMagnitude = seededRng(currentSeed, nextMinute, 7172);
+                luckyBonus = 0.01 + Math.pow(bonusMagnitude, 0.6) * 0.49;
+            }
+        }
+        // Dynamiczny mnożnik konwersji zależny od stosunku sił atakującego vs broniącego.
+        // Równe drużyny (ratio≈1.0) → mult=0.62 → ~31% konwersji przy shot≈save
+        // Duża dysproporcja (ratio≥1.4, Tier1 vs Tier4) → cap mult=0.44 → ~28% konwersji
+        // BUGFIX: pPower=GRACZ, aPower=AI — przeliczamy na rzeczywiste HOME/AWAY
+        const homePwr = userSide === 'HOME' ? pPower : aPower;
+        const awayPwr = userSide === 'AWAY' ? pPower : aPower;
+        const attackingPwr = eventSide === 'HOME' ? homePwr : awayPwr;
+        const defendingPwr = eventSide === 'HOME' ? awayPwr : homePwr;
+        const powerRatio = Math.min(1.5, attackingPwr / Math.max(1, defendingPwr));
+        const baseConversionMult = Math.max(0.44, 0.62 - (powerRatio - 1.0) * 0.45);
+        // Współczynnik nasycenia bramkowego — progresywny spadek skuteczności atakującego lidera.
+        // Działa tylko dla strony która prowadzi o > 1 bramkę.
+        // diff=2 → ×0.82 | diff=3 → ×0.65 | diff=4 → ×0.50 | diff=5 → ×0.37 | diff=6 → ×0.25 | diff=7+ → prob cap 0.01
+        const attackingScore = eventSide === 'HOME' ? hScore : aScore;
+        const defendingScore = eventSide === 'HOME' ? aScore : hScore;
+        const leadDiff = attackingScore - defendingScore;
+        let satietyMult = 1.0;
+        if (leadDiff >= 7) {
+            satietyMult = 0.0; // prob zostanie ucięte do 0.01 przez cap poniżej
+        } else if (leadDiff >= 2) {
+            satietyMult = Math.pow(0.815, leadDiff - 1); // diff=2→0.81, 3→0.67, 4→0.54, 5→0.44, 6→0.36
+        }
+        const rawGoalProbability = (shotPower / (shotPower + savePower)) * baseConversionMult * satietyMult + luckyBonus;
+        const goalProbability = leadDiff >= 7
+            ? Math.min(0.01, rawGoalProbability)
+            : Math.min(0.90, rawGoalProbability);
+        const goalRoll = seededRng(currentSeed, nextMinute, 8831);
+        // --- DEBUG SNAPSHOT: zapis kalkulacji strzału dla panelu live ---
+        liveDebugStatsRef.current = [...liveDebugStatsRef.current.slice(-79), {
+          minute: nextMinute, side: eventSide,
+          shotPower: parseFloat(shotPower.toFixed(2)),
+          savePower: parseFloat(savePower.toFixed(2)),
+          goalProbability: parseFloat(goalProbability.toFixed(4)),
+          goalRoll: parseFloat(goalRoll.toFixed(4)),
+          isGoal: goalRoll < goalProbability && !wasPenaltyThisMinute,
+          luckyBonus: parseFloat(luckyBonus.toFixed(4)),
+          homeThreshold: parseFloat(homeProgressionThreshold.toFixed(4)),
+          awayThreshold: parseFloat(awayProgressionThreshold.toFixed(4)),
+          dynamicThreshold: parseFloat(currentThreshold.toFixed(4)),
+          successPasses: successfulPasses,
+          diceRolls,
+          pPower: Math.round(pPower),
+          aPower: Math.round(aPower),
+        }];
+         if (goalRoll < goalProbability && !wasPenaltyThisMinute) {
          
          
                 eventType = MatchEventType.GOAL;
@@ -1603,26 +1927,25 @@ if (targetPlayer && !prev.isPausedForEvent) {
                                      (eventSide === 'AWAY' && prev.homeScore - prev.awayScore >= 2 && hScore - aScore === 1);
 
                 if (isComebackGoal) {
-                   (prev as any).comebackPower = 2 + (Math.random() * 8); // 2-10% boostu
-                   (prev as any).comebackExpiry = nextMinute + 2 + Math.floor(Math.random() * 6); // czas trwania 2-7 min
-                   (prev as any).comebackSide = eventSide;
+                   nextComebackPower = 2 + (Math.random() * 8);
+                   nextComebackExpiry = nextMinute + 2 + Math.floor(Math.random() * 6);
+                   nextComebackSide = eventSide;
                    updatedLogs = [{ id: `comeback_${nextMinute}`, minute: nextMinute, text: `BRAMKA KONTAKTOWA! ${eventSide === 'HOME' ? ctx.homeClub.shortName : ctx.awayClub.shortName} łapie wiatr w żagle!`, type: MatchEventType.PRESSURE, teamSide: eventSide }, ...updatedLogs];
                 }
 
-                // TUTAJ ZASTĄP TEN KOD (UTRWALENIE BLOKADY + RESET MOMENTUM)
-                nextMomentum = 0; 
-                // Kluczowe: przypisujemy do zmiennej lokalnej widocznej w return
-                (prev as any).lastGoalBoostMinute = nextMinute; 
+                nextMomentum = 0;
+                nextLastGoalBoostMinute = nextMinute;
+                nextIsPaused = true; // Pauza 3 sekundy — wznowienie przez useEffect
 
                 const isEquivalent = Math.abs(pPower - aPower) < 25;
-                // Skrócono: 4–8 minut (było 10–20) — AI miało zbyt długo zablokowany atak po każdym golu gracza
-                (prev as any).postGoalSuppressionDuration = 4 + Math.floor(Math.random() * 5);
+                nextPostGoalSuppressionDuration = isEquivalent
+                    ? 4 + Math.floor(Math.random() * 5)   // 4–8 min — mecze równe
+                    : 7 + Math.floor(Math.random() * 6);  // 7–12 min — duża dysproporcja: faworyt trzyma piłkę
 
                 if (isEquivalent) {
-                   // Obniżono: 10–20% (było 30–50%) — główna przyczyna zerowego strzelania AI
-                   (prev as any).postGoalPenaltyPct = 0.10 + (Math.random() * 0.10);
+                   nextPostGoalPenaltyPct = 0.10 + (Math.random() * 0.10); // 10–20%
                 } else {
-                   (prev as any).postGoalPenaltyPct = 0.02 + (Math.random() * 0.08); // 2-10%
+                   nextPostGoalPenaltyPct = 0.13 + (Math.random() * 0.10); // 13–23% — silniejszy nie naciska od razu
                 }
            } else {
 
@@ -1630,8 +1953,6 @@ if (targetPlayer && !prev.isPausedForEvent) {
 if (keeper.tier === 4 && Math.random() < 0.13) { // 13% szansy na super interwencję
     eventType = MatchEventType.ONE_ON_ONE_SAVE;
     nextMomentum += (eventSide === 'HOME' ? -15 : 15);
-} else {
-
 }
 
                 const saveRoll = seededRng(currentSeed, nextMinute, 7777);
@@ -1678,19 +1999,19 @@ if (keeper.tier === 4 && Math.random() < 0.13) { // 13% szansy na super interwen
         }
 
         // === CUP UPSET: Słabsza drużyna zawsze ma minimalną szansę na akcję bramkową ===
-        // Progresywne, oparte na SILE (nie reputacji):
+        // Działa dla OBIE stron (gracz i AI) — słabsza drużyna niezależnie od strony
         //   gap=1.4 (T2-weak vs T1) → 5.7%/min akcji, 14% gola z akcji → ~16% gol/mecz
         //   gap=1.8 (T3 vs T1)      → 4.4%/min akcji, 11% gola z akcji → ~16% gol/mecz
         //   gap=2.7 (T4 vs T1)      → 3.0%/min akcji,  7% gola z akcji → ~7% gol/mecz
-        // T4 win chance vs T1 ≈ 1%: P(T4 ≥1 gol ≈ 7%) × P(T1 = 0 goli ≈ 14%) ≈ ~1%
-        if (eventSide === aiSide) {
+        {
             const upsetAttPwr = getFormationPowerPro(
                 eventSide === 'HOME' ? nextHomeLineup.startingXI : nextAwayLineup.startingXI,
                 eventSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers,
                 eventSide === 'HOME' ? localHomeFatigue : localAwayFatigue,
                 ['attacking', 'finishing'],
                 [PlayerPosition.FWD, PlayerPosition.MID],
-                weatherMod
+                weatherMod,
+                eventSide === 'HOME' ? nextHomeInjuries : nextAwayInjuries
             );
             const upsetDefPwr = getFormationPowerPro(
                 eventSide === 'HOME' ? nextAwayLineup.startingXI : nextHomeLineup.startingXI,
@@ -1698,19 +2019,20 @@ if (keeper.tier === 4 && Math.random() < 0.13) { // 13% szansy na super interwen
                 eventSide === 'HOME' ? localAwayFatigue : localHomeFatigue,
                 ['defending', 'positioning'],
                 [PlayerPosition.DEF, PlayerPosition.MID, PlayerPosition.GK],
-                weatherMod
+                weatherMod,
+                eventSide === 'HOME' ? nextAwayInjuries : nextHomeInjuries
             );
             const upsetPowerGap = upsetDefPwr / Math.max(1, upsetAttPwr);
 
             if (upsetPowerGap > 1.4) {
-                const upsetActionChance = Math.min(0.06, 0.08 / upsetPowerGap);
+                const upsetActionChance = Math.min(0.08, 0.011 / upsetPowerGap);
                 if (seededRng(currentSeed, nextMinute, 9991) < upsetActionChance) {
                     const upsetAttTeam = eventSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers;
                     const upsetAttLineup = (eventSide === 'HOME' ? nextHomeLineup : nextAwayLineup).startingXI;
                     const upsetScorer = GoalAttributionService.pickScorer(upsetAttTeam, upsetAttLineup as string[], false, () => seededRng(currentSeed, nextMinute, 9992));
                     if (upsetScorer) {
                         // Konwersja na gola spada wraz z rosnącą przewagą obrony
-                        const goalConvRate = Math.max(0.06, 0.20 / upsetPowerGap);
+                        const goalConvRate = Math.max(0.08, 0.23 / upsetPowerGap);
                         if (seededRng(currentSeed, nextMinute, 9993) < goalConvRate) {
                             eventType = MatchEventType.GOAL;
                             const formattedName = `${upsetScorer.firstName.charAt(0)}. ${upsetScorer.lastName}`;
@@ -1718,9 +2040,9 @@ if (keeper.tier === 4 && Math.random() < 0.13) { // 13% szansy na super interwen
                             const goalData = { playerName: formattedName, minute: nextMinute, isPenalty: false };
                             if (eventSide === 'HOME') { hScore++; updatedHomeGoals.push(goalData); }
                             else { aScore++; updatedAwayGoals.push(goalData); }
-                            (prev as any).lastGoalBoostMinute = nextMinute;
-                            (prev as any).postGoalSuppressionDuration = 4 + Math.floor(Math.random() * 5);
-                            (prev as any).postGoalPenaltyPct = 0.10 + (Math.random() * 0.10);
+                            nextLastGoalBoostMinute = nextMinute;
+                            nextPostGoalSuppressionDuration = 4 + Math.floor(Math.random() * 5);
+                            nextPostGoalPenaltyPct = 0.10 + (Math.random() * 0.10);
                             const upsetGoalTexts = [
                                 `SENSACJA! ${upsetScorer.lastName} wykorzystuje błąd obrony i strzela!`,
                                 `Niespodziewane! ${upsetScorer.lastName} przebija się i pokonuje bramkarza!`,
@@ -1741,23 +2063,17 @@ if (keeper.tier === 4 && Math.random() < 0.13) { // 13% szansy na super interwen
         }
           }
 
-        // TUTAJ WSTAW TEN KOD (POPRAWKA SPOJNOŚCI RESETU)
-        // Jeśli właśnie padł gol, nie pozwalamy serwisowi Momentum obliczać impulsu - wymuszamy twarde 0.
+        // POPRAWKA SPÓJNOŚCI: po golu momentum zeruje się natychmiast, bez wygładzania
         if (eventType === MatchEventType.GOAL) {
             nextMomentum = 0;
         } else {
-            nextMomentum = MomentumServiceCup.computeMomentum(ctx, { ...prev, homeLineup: nextHomeLineup, awayLineup: nextAwayLineup }, eventType, eventSide);
+            nextMomentum = MomentumServiceCup.computeMomentum(ctx, { ...prev, homeLineup: nextHomeLineup, awayLineup: nextAwayLineup }, eventType ?? MatchEventType.GENERIC, eventSide);
+            // Wygładzanie momentum — zapobiega szarpaniu wyniku (tylko dla nie-goli)
+            const momentumChange = nextMomentum - prev.momentum;
+            const cupVolatility = 0.28;
+            nextMomentum = prev.momentum + (momentumChange * cupVolatility);
         }
-        // KONIEC POPRAWKI
-
-        // === WYGŁADZANIE MOMENTUM – zapobiega szarpaniu wyniku ===
-
-
-       const momentumChange = nextMomentum - prev.momentum;
-// Zwiększamy inercję z 0.12 na 0.28, aby pasek reagował szybciej na rzuty koscią
-const cupVolatility = 0.28; 
-nextMomentum = prev.momentum + (momentumChange * cupVolatility);
-        nextMomentum = Math.max(-95, Math.min(95, nextMomentum)); // nie pozwalamy na ekstremalne wartości
+        nextMomentum = Math.max(-95, Math.min(95, nextMomentum));
 
    if (currentAiShout) {
            let shoutImpact = 0;
@@ -1905,17 +2221,6 @@ if (activePlayerTempo === 'SLOW') {
 
        // --- STAGE 1 PRO: DRENAŻ KONDYCJI (FIXED) ---
               const updateFatigue = (lineup: (string | null)[], fatigueMap: Record<string, number>, teamPlayers: Player[], currentTempo: string, currentIntensity: string) => {
-
-// --- APLIKACJA WIATRU W ŻAGLE (COMEBACK BOOST) ---
-        if ((prev as any).comebackExpiry && nextMinute <= (prev as any).comebackExpiry) {
-            const sideMult = (prev as any).comebackSide === 'HOME' ? 1 : -1;
-            const boost = (prev as any).comebackPower || 0;
-            nextMomentum += (boost * sideMult);
-            
-            // Wizualny efekt pulsowania paska przy boost'cie
-            if (nextMinute % 2 === 0) nextMomentum += (2 * sideMult);
-        }
-
             lineup.forEach(id => {
                 if (!id) return;
                 const p = teamPlayers.find(x => x.id === id);
@@ -1950,6 +2255,14 @@ if (activePlayerTempo === 'SLOW') {
                       userSide === 'AWAY' ? activePlayerTempo : (currentAiShout?.tempo || 'NORMAL'),
                       userSide === 'AWAY' ? (isPlayerEffectActive ? prev.userInstructions.intensity : 'NORMAL') : (currentAiShout?.intensity || 'NORMAL'));
 
+        // --- APLIKACJA WIATRU W ŻAGLE (COMEBACK BOOST) ---
+        // Blok jest poza updateFatigue, by aplikował się RAZ na minutę (nie dwa razy)
+        if (nextComebackExpiry > 0 && nextMinute <= nextComebackExpiry) {
+            const sideMult = nextComebackSide === 'HOME' ? 1 : -1;
+            nextMomentum += (nextComebackPower * sideMult);
+            if (nextMinute % 2 === 0) nextMomentum += (2 * sideMult); // wizualny puls
+        }
+
        const hasEmptySlotsAi = aiSide === 'AWAY' ? nextAwayLineup.startingXI.some(id => id === null) : nextHomeLineup.startingXI.some(id => id === null);
         
         // --- TUTAJ WSTAW TEN KOD (Inteligentny Wyzwalacz Decyzji AI) ---
@@ -1957,7 +2270,6 @@ if (activePlayerTempo === 'SLOW') {
         // 1. Ma pusty slot w składzie
         // 2. Jest końcówka meczu (80min+) i przegrywa jednym golem
         // 3. Jest w dogrywce i nastąpiła zmiana wyniku
-        const diff = aiSide === 'HOME' ? (prev.homeScore - prev.awayScore) : (prev.awayScore - prev.homeScore);
         const diffAi = aiSide === 'HOME' ? (hScore - aScore) : (aScore - hScore);
         const playerSentOffCount = nextSentOffIds.filter(id => (userSide === 'HOME' ? ctx.homePlayers : ctx.awayPlayers).some(p => p.id === id)).length;
 
@@ -2016,7 +2328,7 @@ if (activePlayerTempo === 'SLOW') {
            // --- KROK 1: Podpięcie instrukcji operacyjnych serwisu decyzyjnego ---
            // AiMatchDecisionCupService może zwrócić tempo/mindset/intensity (kontra-tempo, red card itp.).
            // Aplikujemy je jako krótki shout nadpisując aktualny stan — serwis jest bardziej reaktywny niż Brain.
-           if (decision.newIntensity || decision.newTempo || decision.newMindset) {
+           if (canShoutNow && (decision.newIntensity || decision.newTempo || decision.newMindset)) {
               const svcShoutDuration = 8 + Math.floor((aiCoach?.attributes.experience || 50) / 15);
               currentAiShout = {
                  id: `SVC_${nextMinute}`,
@@ -2058,15 +2370,19 @@ if (activePlayerTempo === 'SLOW') {
           awaySubsHistory: nextAwaySubsHistory,
           subsCountHome: nextSubsCountHome,
           subsCountAway: nextSubsCountAway,
-        lastGoalBoostMinute: (prev as any).lastGoalBoostMinute, 
+          lastGoalBoostMinute: nextLastGoalBoostMinute,
           isPaused: nextIsPaused,
-           isPausedForEvent: nextIsPausedForEvent,
-          // -> tutaj wstaw kod
-          // Używamy zaktualizowanej zmiennej lokalnej
+          isPausedForEvent: nextIsPausedForEvent,
           lastAiActionMinute: nextLastAiActionMinute,
-           aiActiveShout: currentAiShout,
-            activeTacticalBoost: nextTacticalBoost,
+          aiActiveShout: currentAiShout,
+          activeTacticalBoost: nextTacticalBoost,
           tacticalBoostExpiry: nextTacticalExpiry,
+          // Post-goal state — zapisane poprawnie przez return, bez mutacji prev
+          postGoalSuppressionDuration: nextPostGoalSuppressionDuration,
+          postGoalPenaltyPct: nextPostGoalPenaltyPct,
+          comebackPower: nextComebackPower,
+          comebackExpiry: nextComebackExpiry,
+          comebackSide: nextComebackSide,
           // Aktualizacja długoterminowego momentum — potrzebne przez AiMatchDecisionCupService
           momentumSum: (prev.momentumSum || 0) + nextMomentum,
           momentumTicks: (prev.momentumTicks || 0) + 1
@@ -2075,7 +2391,7 @@ if (activePlayerTempo === 'SLOW') {
     }, matchState.speed === 5 ? 80 : matchState.speed === 2.5 ? 240 : 600);
 
     return () => clearInterval(interval);
-  }, [matchState?.isPaused, matchState?.isPausedForEvent, matchState?.isFinished, matchState?.isHalfTime, matchState?.isPenalties, matchState?.speed, ctx, setMatchState, isFinishing, isCelebratingGoal, isTacticsOpen, userSide]);
+  }, [matchState?.isPaused, matchState?.isPausedForEvent, matchState?.isFinished, matchState?.isHalfTime, matchState?.isPenalties, matchState?.speed, ctx, setMatchState, isFinishing, isTacticsOpen, userSide]);
 
   const handleFinish = () => {
     if (!matchState || !ctx) return;
@@ -2277,8 +2593,10 @@ if (activePlayerTempo === 'SLOW') {
                const currentFatigue = matchState[side === 'HOME' ? 'homeFatigue' : 'awayFatigue'][p.id] ?? p.condition;
                const fatigueDrop = Math.max(0, p.condition - currentFatigue).toFixed(1);
 
+               const isLightInj = (side === 'HOME' ? matchState.homeInjuries[p.id] : matchState.awayInjuries[p.id]) === InjurySeverity.LIGHT;
+
                return (
-                 <div key={p.id} className="flex items-center gap-3 py-0.7 px-0.2 rounded-xs bg-white/[0.02] border border-white/[0.05] transition-all">
+                 <div key={p.id} className={`flex items-center gap-3 py-0.7 px-0.2 rounded-xs border transition-all ${isLightInj ? 'bg-orange-500/20 border-orange-400/50' : 'bg-white/[0.02] border-white/[0.05]'}`}>
                     <span className={`font-mono font-black text-[9px] w-6 ${PlayerPresentationService.getPositionColorClass(p.position)}`}>{p.position}</span>
                     <div className="flex-1 flex flex-col min-w-0">
                        <span className="text-[10px] text-slate-200 font-bold uppercase italic truncate">{p.firstName.charAt(0)}. {p.lastName}</span>
@@ -2443,6 +2761,20 @@ if (activePlayerTempo === 'SLOW') {
                            <span className="text-5xl filter drop-shadow-[0_0_20px_rgba(239,68,68,0.9)]">🟥</span>
                         </div>
                         <span className="text-lg font-black text-red-400 uppercase tracking-[0.3em]">{penaltyNotice.toUpperCase()}</span>
+                     </div>
+                  </div>
+               )}
+               {redCardNotice && (
+                  <div className="absolute inset-0 z-[100] flex items-center justify-center pointer-events-none" style={{ transform: 'rotateX(-24deg)' }}>
+                     <div className="relative flex flex-col items-center gap-3 bg-slate-950/95 backdrop-blur-2xl border-y-4 border-red-600 px-16 py-8 rounded-[40px] shadow-[0_0_120px_rgba(220,38,38,0.8)]">
+                        <div className="absolute inset-0 rounded-[40px] pointer-events-none" style={{ boxShadow: 'inset 0 0 60px rgba(220,38,38,0.2)' }} />
+                        <span className="text-[10px] font-black text-red-500 tracking-[0.5em] uppercase">Czerwona kartka!</span>
+                        <div className="flex items-center gap-4">
+                           <span className="text-5xl">🟥</span>
+                           <span className="text-5xl font-black italic text-white uppercase tracking-tighter drop-shadow-[0_0_30px_rgba(255,255,255,0.4)]">{redCardNotice}</span>
+                           <span className="text-5xl">🟥</span>
+                        </div>
+                        <span className="text-base font-bold text-red-400 uppercase tracking-widest">OPUSZCZA BOISKO!</span>
                      </div>
                   </div>
                )}
@@ -2831,41 +3163,103 @@ if (activePlayerTempo === 'SLOW') {
 
 
 
+        {/* PANEL HISTORII KOMENTARZA */}
+{isCommentaryOpen && (
+  <div className="fixed right-4 top-4 bottom-4 z-50 w-[380px] pointer-events-auto flex flex-col">
+    <div className="flex-1 bg-slate-950/97 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-white/10 shrink-0">
+        <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.4em]">Historia komentarza</span>
+        <button onClick={() => setIsCommentaryOpen(false)} className="text-slate-500 hover:text-white text-xs font-black transition-colors">✕</button>
+      </div>
+      <div className="overflow-y-auto custom-scrollbar flex-1 px-3 py-3 space-y-1">
+        {matchState.logs.map((log, i) => {
+          const isHome = log.teamSide === 'HOME';
+          const isAway = log.teamSide === 'AWAY';
+          const isGoal = log.type === MatchEventType.GOAL;
+          const isRed = log.type === MatchEventType.RED_CARD;
+          const isYellow = log.type === MatchEventType.YELLOW_CARD;
+          const isSevere = log.type === MatchEventType.INJURY_SEVERE;
+
+          const rowBg = isHome
+            ? 'bg-blue-900/30 border-l-2 border-blue-500/60'
+            : isAway
+            ? 'bg-rose-900/30 border-l-2 border-rose-500/60'
+            : 'bg-slate-800/20 border-l-2 border-slate-600/20';
+
+          const textColor = isGoal ? 'text-yellow-300 font-black' :
+            isRed ? 'text-red-400 font-bold' :
+            isYellow ? 'text-yellow-400' :
+            isSevere ? 'text-orange-400' :
+            isHome ? 'text-blue-100' :
+            isAway ? 'text-rose-100' :
+            'text-slate-400';
+
+          return (
+            <div key={log.id ?? i} className={`flex items-start gap-2 text-[11px] px-2 py-1 rounded-lg ${rowBg}`}>
+              <span className="shrink-0 font-black text-slate-500 w-7 text-right pt-0.5">{log.minute}'</span>
+              <span className={`leading-snug ${textColor}`}>{log.text}</span>
+            </div>
+          );
+        })}
+        <div ref={logsEndRef} />
+      </div>
+    </div>
+  </div>
+)}
+
         {/* FIXED: oba panele – wycentrowane, niezależne od layoutu; regulacja od dołu ekranu */}
 <div className="fixed inset-x-0 bottom-[100px] z-50 flex items-stretch justify-center gap-4 pointer-events-none">
   {/* LEWY PANEL: Live Tactical Console */}
-  <div className="w-48 bg-slate-900/60 rounded-[35px] border border-white/10 backdrop-blur-3xl p-2 flex flex-col justify-between shadow-2xl pointer-events-auto">
-    <span className="text-[8px] font-black text-yellow-500 uppercase tracking-[0.4em] mb-2 px-2">USTAWIENIA DRUŻYNY</span>
+  <div className="w-72 bg-slate-900/60 rounded-[35px] border border-white/10 backdrop-blur-3xl p-3 flex flex-col justify-between shadow-2xl pointer-events-auto">
+    <span className="text-[8px] font-black text-yellow-500 uppercase tracking-[0.4em] mb-2 px-1">USTAWIENIA DRUŻYNY</span>
     <div className="space-y-2">
       {[
-        { label: 'TEMPO', key: 'tempo', options: [{v:'SLOW', l:'Wolne'}, {v:'NORMAL', l:'Normalne'}, {v:'FAST', l:'Szybkie'}] },
-        { label: 'NASTAWIENIE', key: 'mindset', options: [{v:'DEFENSIVE', l:'Defensywne'}, {v:'NEUTRAL', l:'Neutralne'}, {v:'OFFENSIVE', l:'Ofensywne'}] },
-        { label: 'STYL GRY', key: 'intensity', options: [{v:'CAUTIOUS', l:'Ostrożnie'}, {v:'NORMAL', l:'Normalnie'}, {v:'AGGRESSIVE', l:'Agresywnie'}] }
-      ].map(group => (
-        <div key={group.key} className="flex items-center justify-between gap-3 bg-black/20 p-1.5 rounded-xl border border-white/5">
-          <span className="text-[7px] font-black text-slate-500 uppercase w-14">{group.label}</span>
-          <select 
-            disabled={matchState.minute - matchState.userInstructions.lastChangeMinute < 2}
-            value={matchState.userInstructions[group.key as keyof typeof matchState.userInstructions]}
-            onChange={(e) => {
-              const val = e.target.value as any;
-              const randomDuration = Math.floor(Math.random() * 11) + 5; 
-              setMatchState(s => s ? {
-                ...s, 
-                userInstructions: { 
-                  ...s.userInstructions, 
-                  [group.key]: val, 
-                  lastChangeMinute: s.minute,
-                  expiryMinute: s.minute + randomDuration
-                }
-              } : s);
-            }}
-            className="bg-transparent text-white text-[10px] font-black uppercase outline-none cursor-pointer flex-1 text-right"
-          >
-            {group.options.map(opt => <option key={opt.v} value={opt.v} className="bg-slate-900">{opt.l}</option>)}
-          </select>
-        </div>
-      ))}
+        { label: 'TEMPO',      key: 'tempo',     options: [{v:'SLOW', l:'Wolne'}, {v:'NORMAL', l:'Normalne'}, {v:'FAST', l:'Szybkie'}] },
+        { label: 'NASTAWIENIE', key: 'mindset',  options: [{v:'DEFENSIVE', l:'Def.'}, {v:'NEUTRAL', l:'Neutral'}, {v:'OFFENSIVE', l:'Ofens.'}] },
+        { label: 'STYL GRY',   key: 'intensity', options: [{v:'CAUTIOUS', l:'Ostrożnie'}, {v:'NORMAL', l:'Normalnie'}, {v:'AGGRESSIVE', l:'Agresywnie'}] }
+      ].map(group => {
+        const isCoolingDown = (instructionCooldowns[group.key] ?? -99) + 10 > matchState.minute;
+        const currentVal = matchState.userInstructions[group.key as keyof typeof matchState.userInstructions];
+        return (
+          <div key={group.key} className="flex flex-col gap-1">
+            <span className="text-[7px] font-black text-slate-500 uppercase px-1">{group.label}</span>
+            <div className="flex gap-1">
+              {group.options.map(opt => {
+                const isActive = currentVal === opt.v;
+                return (
+                  <button
+                    key={opt.v}
+                    disabled={isCoolingDown}
+                    onClick={() => {
+                      const randomDuration = Math.floor(Math.random() * 11) + 5;
+                      setInstructionCooldowns(cd => ({ ...cd, [group.key]: matchState.minute }));
+                      setMatchState(s => s ? {
+                        ...s,
+                        userInstructions: {
+                          ...s.userInstructions,
+                          [group.key]: opt.v,
+                          lastChangeMinute: s.minute,
+                          expiryMinute: s.minute + randomDuration
+                        }
+                      } : s);
+                    }}
+                    className={`flex-1 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-tight transition-all border
+                      ${
+                        isActive
+                          ? 'bg-yellow-500 border-yellow-400 text-slate-900 shadow-lg'
+                          : isCoolingDown
+                          ? 'bg-white/3 border-white/5 text-slate-600 cursor-not-allowed'
+                          : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white cursor-pointer'
+                      }`}
+                  >
+                    {opt.l}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   </div>
 
@@ -2888,12 +3282,20 @@ if (activePlayerTempo === 'SLOW') {
     </div>
 
     {matchState.isFinished ? (
-      <button 
-        onClick={handleFinish}
-        className="flex-1 bg-emerald-600 border-b-4 border-emerald-800 text-white rounded-3xl font-black uppercase italic text-lg shadow-2xl hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3"
-      >
-        ZAKOŃCZ MECZ <span className="text-2xl"></span>
-      </button>
+      <div className="flex-1 flex flex-col gap-2">
+        <button 
+          onClick={handleFinish}
+          className="flex-1 bg-emerald-600 border-b-4 border-emerald-800 text-white rounded-3xl font-black uppercase italic text-lg shadow-2xl hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3"
+        >
+          ZAKOŃCZ MECZ <span className="text-2xl"></span>
+        </button>
+        <button
+          onClick={() => setIsCommentaryOpen(v => !v)}
+          className="h-10 bg-blue-500/10 border border-blue-500/30 text-blue-300 font-black italic uppercase tracking-widest text-[9px] rounded-2xl hover:bg-blue-500/20 hover:text-blue-200 transition-all shadow-xl"
+        >
+          📋 KOMENTARZ
+        </button>
+      </div>
     ) : (
       <div className="flex-1 flex flex-col gap-2">
         <button 
@@ -2981,9 +3383,12 @@ if (activePlayerTempo === 'SLOW') {
               if (s.isExtraTime) {
                  return { ...htResumedState, period: 4, minute: 105, aiActiveShout: htActiveShout };
               }
+              setIsUserPaused(false);
               return { ...htResumedState, period: 2, minute: 45, aiActiveShout: htActiveShout };
             }
-            return { ...s, isPaused: !s.isPaused };
+            const nextPaused = !s.isPaused;
+            setIsUserPaused(nextPaused);
+            return { ...s, isPaused: nextPaused };
           })} 
           className={`flex-1 rounded-3xl font-black uppercase italic text-xl shadow-2xl transition-all hover:scale-[1.02] active:scale-95 border-b-4
             ${matchState.isHalfTime ? 'bg-blue-600 border-blue-800 text-white' : 
@@ -3000,10 +3405,86 @@ if (activePlayerTempo === 'SLOW') {
         >
           ⚙ TAKTYKA
         </button>
+
+        <button
+          onClick={downloadDebugLog}
+          className="hidden h-10 bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 font-black italic uppercase tracking-widest text-[9px] rounded-2xl hover:bg-yellow-500/20 hover:text-yellow-300 transition-all shadow-xl"
+          title="Pobierz log debugowania jako .txt"
+        >
+          🐛 DEBUG LOG
+        </button>
+
+        <button
+          onClick={() => setShowDebugPanel(v => !v)}
+          className={`hidden h-10 border font-black italic uppercase tracking-widest text-[9px] rounded-2xl transition-all shadow-xl ${showDebugPanel ? 'bg-green-500/30 border-green-400/60 text-green-300' : 'bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20 hover:text-green-300'}`}
+          title="Panel matematyczny na żywo"
+        >
+          📊 LIVE STATS
+        </button>
+
+        <button
+          onClick={() => setIsCommentaryOpen(v => !v)}
+          className="h-10 bg-blue-500/10 border border-blue-500/30 text-blue-300 font-black italic uppercase tracking-widest text-[9px] rounded-2xl hover:bg-blue-500/20 hover:text-blue-200 transition-all shadow-xl"
+        >
+          📋 KOMENTARZ
+        </button>
       </div>
     )}
   </div>
 </div>
+
+  {showDebugPanel && (() => {
+        const homeShotEvents = debugDisplayData.filter(s => s.side === 'HOME');
+        const awayShotEvents = debugDisplayData.filter(s => s.side === 'AWAY');
+        const homeGoals = homeShotEvents.filter(s => s.isGoal).length;
+        const awayGoals = awayShotEvents.filter(s => s.isGoal).length;
+        const homeConv = homeShotEvents.length > 0 ? ((homeGoals / homeShotEvents.length) * 100).toFixed(1) : '—';
+        const awayConv = awayShotEvents.length > 0 ? ((awayGoals / awayShotEvents.length) * 100).toFixed(1) : '—';
+        const last8 = [...debugDisplayData].reverse().slice(0, 8);
+        const latest = debugDisplayData.length > 0 ? debugDisplayData[debugDisplayData.length - 1] : null;
+        return (
+          <div className="fixed top-4 right-4 z-50 w-80 bg-black/92 border border-yellow-500/40 rounded-2xl p-3 text-[10px] font-mono shadow-2xl">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-yellow-400 font-black uppercase tracking-widest text-[9px]">📊 LIVE MATH DEBUG</span>
+              <button onClick={() => setShowDebugPanel(false)} className="text-slate-400 hover:text-white text-xs">✕</button>
+            </div>
+            {latest && (
+              <div className="bg-white/5 rounded-xl p-2 mb-2">
+                <div className="text-slate-400 text-[9px] uppercase mb-1">Siła drużyn (ostatni tick)</div>
+                <div className="flex justify-between">
+                  <span className="text-green-300">TWOJA: <span className="text-white font-bold">{latest.pPower}</span></span>
+                  <span className="text-red-300">RYWAL: <span className="text-white font-bold">{latest.aPower}</span></span>
+                </div>
+                <div className="flex justify-between mt-1 text-[9px]">
+                  <span className="text-blue-300">progH: <span className="text-yellow-300">{(latest.homeThreshold * 100).toFixed(1)}%</span></span>
+                  <span className="text-cyan-300">dynThresh: <span className="text-yellow-300">{(latest.dynamicThreshold * 100).toFixed(1)}%</span></span>
+                  <span className="text-orange-300">progA: <span className="text-yellow-300">{(latest.awayThreshold * 100).toFixed(1)}%</span></span>
+                </div>
+              </div>
+            )}
+            <div className="bg-white/5 rounded-xl p-2 mb-2">
+              <div className="text-slate-400 text-[9px] uppercase mb-1">Strzały → Gole (konwersja)</div>
+              <div className="text-blue-300">HOME <span className="text-white">{homeShotEvents.length} strz → {homeGoals} goli</span> <span className="text-yellow-300">({homeConv}%)</span></div>
+              <div className="text-orange-300 mt-0.5">AWAY <span className="text-white">{awayShotEvents.length} strz → {awayGoals} goli</span> <span className="text-yellow-300">({awayConv}%)</span></div>
+            </div>
+            <div className="text-slate-400 text-[9px] uppercase mb-1">Ostatnie strzały</div>
+            <div className="space-y-1 max-h-52 overflow-y-auto custom-scrollbar">
+              {last8.map((s, i) => (
+                <div key={i} className={`rounded-lg p-1.5 ${s.isGoal ? 'bg-green-500/15 border border-green-500/30' : 'bg-white/5'}`}>
+                  <div className="flex justify-between">
+                    <span className={s.side === 'HOME' ? 'text-blue-300' : 'text-orange-300'}>{s.side} {s.minute}&apos;</span>
+                    <span className={s.isGoal ? 'text-green-400 font-bold' : 'text-slate-400'}>{s.isGoal ? '⚽ GOL' : '🧤 BLOK'}</span>
+                  </div>
+                  <div className="text-slate-300 mt-0.5">shot=<span className="text-white">{s.shotPower}</span> save=<span className="text-white">{s.savePower}</span>{s.luckyBonus > 0 && <span className="text-yellow-300 ml-1">+luck={((s.luckyBonus) * 100).toFixed(1)}%</span>}</div>
+                  <div className="text-slate-400">prob=<span className="text-yellow-300">{(s.goalProbability * 100).toFixed(1)}%</span> roll=<span className={s.isGoal ? 'text-green-400' : 'text-red-400'}>{(s.goalRoll * 100).toFixed(1)}%</span></div>
+                  <div className="text-slate-500">passes={s.successPasses}/{s.diceRolls} ({s.diceRolls > 0 ? ((s.successPasses / s.diceRolls) * 100).toFixed(0) : 0}%) dynT={( s.dynamicThreshold * 100).toFixed(1)}%</div>
+                </div>
+              ))}
+              {debugDisplayData.length === 0 && <div className="text-slate-500 text-center py-2">Brak danych — czekam na strzały...</div>}
+            </div>
+          </div>
+        );
+      })()}
 
   {isTacticsOpen && (
         <MatchCupTacticsModal 
@@ -3016,7 +3497,8 @@ if (activePlayerTempo === 'SLOW') {
           subsCount={userSide === 'HOME' ? matchState.subsCountHome : matchState.subsCountAway} 
           subsHistory={userSide === 'HOME' ? matchState.homeSubsHistory : matchState.awaySubsHistory} 
           minute={matchState.minute} 
-          sentOffIds={matchState.sentOffIds} 
+          sentOffIds={matchState.sentOffIds}
+          injuries={userSide === 'HOME' ? matchState.homeInjuries : matchState.awayInjuries}
         />
       )}
 

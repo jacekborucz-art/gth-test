@@ -409,6 +409,7 @@ export interface Fixture {
   // Cup specific metadata
   homePenaltyScore?: number;
   awayPenaltyScore?: number;
+  attendance?: number;
 }
 
 export interface Lineup {
@@ -608,6 +609,12 @@ isPenalties?: boolean;
   momentumSum: number;
   momentumTicks: number;
   // KONIEC WSTAWKI
+  // Post-goal suppression + comeback (CUP engine)
+  postGoalSuppressionDuration?: number;
+  postGoalPenaltyPct?: number;
+  comebackPower?: number;
+  comebackExpiry?: number;
+  comebackSide?: 'HOME' | 'AWAY' | null;
   userInstructions: TacticalInstructions;
 }
 

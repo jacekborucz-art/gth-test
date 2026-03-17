@@ -1,23 +1,35 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useRef } from 'react';
 import { useGame } from '../context/GameContext';
 import { ViewState, MatchEventType, CompetitionType } from '../types';
 import { KitSelectionService } from '../services/KitSelectionService';
+import { ChampionshipHistoryService } from '../data/championship_history';
 import { PostMatchCommentSelector } from './PostMatchCommentSelector';
 
 const GLASS_CARD = "bg-slate-950/40 backdrop-blur-3xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-[40px] relative overflow-hidden";
 const GLOSS_LAYER = "absolute inset-0 bg-gradient-to-br from-white/[0.05] via-transparent to-transparent pointer-events-none";
 
 export const PostMatchCupStudioView: React.FC = () => {
-  const { lastMatchSummary, navigateTo, processBackgroundCupMatches, jumpToNextEvent, players } = useGame();
+  console.log('🎬 PostMatchCupStudioView RENDERED');
+  
+  const { lastMatchSummary, navigateTo, processBackgroundCupMatches, jumpToNextEvent, players, currentDate, addSupercupWinner } = useGame();
+  const savedMatchesRef = useRef<Set<string>>(new Set());
 
-  if (!lastMatchSummary) return null;
+  if (!lastMatchSummary) {
+    console.log('❌ PostMatchCupStudioView - NO lastMatchSummary, exiting');
+    return null;
+  }
 
-  const { 
+  console.log('✓ PostMatchCupStudioView - lastMatchSummary exists'); 
+
+  const {
     homeClub, awayClub, homeScore, awayScore, homeStats, awayStats, 
     homeGoals, awayGoals, homePenaltyScore, awayPenaltyScore,
     timeline, matchId
   } = lastMatchSummary;
+
+  // DEBUG - wypisz pełne dane matchSummary
+  console.log('📋 FULL lastMatchSummary:', lastMatchSummary);
 
   const isSuperCup = matchId.includes('SUPER_CUP');
   const isFinal = matchId.includes('FINAŁ');
@@ -39,10 +51,27 @@ export const PostMatchCupStudioView: React.FC = () => {
 
   // 2. Logika Zwycięzcy (ZASTĄP TEN KOD - Poprawiona hierarchia zwycięstwa)
   const winner = useMemo(() => {
-    if (homeScore > awayScore) return homeClub;
-    if (awayScore > homeScore) return awayClub;
+    console.log('⚔️ Winner calculation:', {
+      homeScore,
+      awayScore,
+      homeClub: homeClub.name,
+      awayClub: awayClub.name,
+      homePenaltyScore,
+      awayPenaltyScore
+    });
+    
+    if (homeScore > awayScore) {
+      console.log('✓ Winner: homeClub', homeClub.name);
+      return homeClub;
+    }
+    if (awayScore > homeScore) {
+      console.log('✓ Winner: awayClub', awayClub.name);
+      return awayClub;
+    }
     // Remis - decydują rzuty karne
-    return (homePenaltyScore || 0) > (awayPenaltyScore || 0) ? homeClub : awayClub;
+    const winner = (homePenaltyScore || 0) > (awayPenaltyScore || 0) ? homeClub : awayClub;
+    console.log('✓ Winner (penalties):', winner.name);
+    return winner;
   }, [homeScore, awayScore, homePenaltyScore, awayPenaltyScore, homeClub, awayClub]);
   // KONIEC ZMIANY
 
@@ -54,6 +83,57 @@ export const PostMatchCupStudioView: React.FC = () => {
     if (distance < 180) aCol = awayClub.colorsHex[1] || '#475569';
     return { home: hCol, away: aCol };
   }, [homeClub, awayClub]);
+
+  // Zapisz zwycięzcę SuperPucharu do historii (tylko raz dla każdego meczu)
+  useEffect(() => {
+    if (isSuperCup && !savedMatchesRef.current.has(matchId)) {
+      const month = currentDate.getMonth();
+      const year = currentDate.getFullYear();
+      const seasonStartYear = month >= 6 ? year : year - 1;
+      const seasonEndYear = seasonStartYear + 1;
+      const seasonLabel = `${seasonStartYear}/${seasonEndYear}`;
+      
+      console.log('💾 Saving to ChampionshipHistoryService:', {
+        seasonLabel,
+        winner: winner.name,
+        seasonEndYear,
+        timestamp: new Date().toISOString()
+      });
+      
+      addSupercupWinner(seasonLabel, winner.name, seasonEndYear);
+      
+      // Zapisz także do persistent storage (localStorage)
+      ChampionshipHistoryService.addCupChampion(seasonLabel, 'SUPERPUCHAR_POLSKI', winner.name, seasonEndYear);
+      
+      console.log('✓ After save - checking localStorage:');
+      console.log('  localStorage data:', localStorage?.getItem('fm_championship_history'));
+      
+      savedMatchesRef.current.add(matchId);
+    }
+    
+    // Zapisz zwycięzcę Pucharu Polskiego do historii (tylko raz dla każdego meczu)
+    if (isFinal && !savedMatchesRef.current.has(matchId)) {
+      const month = currentDate.getMonth();
+      const year = currentDate.getFullYear();
+      const seasonStartYear = month >= 6 ? year : year - 1;
+      const seasonEndYear = seasonStartYear + 1;
+      const seasonLabel = `${seasonStartYear}/${seasonEndYear}`;
+      
+      console.log('💾 Saving Puchar Polski to ChampionshipHistoryService:', {
+        seasonLabel,
+        winner: winner.name,
+        seasonEndYear,
+        timestamp: new Date().toISOString()
+      });
+      
+      ChampionshipHistoryService.addCupChampion(seasonLabel, 'PUCHAR_POLSKI', winner.name, seasonEndYear);
+      
+      console.log('✓ After save - checking localStorage:');
+      console.log('  localStorage data:', localStorage?.getItem('fm_championship_history'));
+      
+      savedMatchesRef.current.add(matchId);
+    }
+  }, [isSuperCup, isFinal, matchId, winner, currentDate, addSupercupWinner, homeClub, awayClub, homeScore, awayScore]);
 
   const handleReturn = () => {
     if (isSuperCup) {
