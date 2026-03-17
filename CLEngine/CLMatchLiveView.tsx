@@ -378,16 +378,16 @@ events: [], homeGoals: [], awayGoals: [], flashMessage: null,
           if (isGoal) {
             if (activePenalty.side === 'HOME') {
               nextHomeScore++;
-              newHomeGoals.push({ playerName: activePenalty.kicker.lastName, minute: prev.minute, isPenalty: true });
+              newHomeGoals.push({ playerName: activePenalty.kicker.lastName, scorerId: activePenalty.kicker.id, minute: prev.minute, isPenalty: true });
             } else {
               nextAwayScore++;
-              newAwayGoals.push({ playerName: activePenalty.kicker.lastName, minute: prev.minute, isPenalty: true });
+              newAwayGoals.push({ playerName: activePenalty.kicker.lastName, scorerId: activePenalty.kicker.id, minute: prev.minute, isPenalty: true });
             }
           } else {
             if (activePenalty.side === 'HOME') {
-              newHomeGoals.push({ playerName: activePenalty.kicker.lastName, minute: prev.minute, isPenalty: true, isMiss: true });
+              newHomeGoals.push({ playerName: activePenalty.kicker.lastName, scorerId: activePenalty.kicker.id, minute: prev.minute, isPenalty: true, isMiss: true });
             } else {
-              newAwayGoals.push({ playerName: activePenalty.kicker.lastName, minute: prev.minute, isPenalty: true, isMiss: true });
+              newAwayGoals.push({ playerName: activePenalty.kicker.lastName, scorerId: activePenalty.kicker.id, minute: prev.minute, isPenalty: true, isMiss: true });
             }
           }
 
@@ -1566,16 +1566,70 @@ return {
   const updatedClubs = simResult.updatedClubs.map(c => {
        if (c.id === ctx.homeClub.id || c.id === ctx.awayClub.id) {
           const isHome = c.id === ctx.homeClub.id;
-          const matchCost = FinanceService.calculateMatchdayExpenses(c, isHome);
+          const tier = parseInt(c.leagueId.split('_')[2] || '1');
+          const matchCost = FinanceService.calculateMatchdayExpenses(c, isHome, isHome ? attendance : undefined);
+          const additionalRevenues = isHome ? FinanceService.calculateMatchdayAdditionalRevenues(attendance, tier, c.reputation) : null;
+          const additionalTotal = additionalRevenues ? (additionalRevenues.catering + additionalRevenues.merchandising + additionalRevenues.programs + additionalRevenues.parking) : 0;
           const s = isHome ? matchState.homeScore : matchState.awayScore;
           const o = isHome ? matchState.awayScore : matchState.homeScore;
 
           const resultChar: "W" | "R" | "P" = s > o ? 'W' : (s === o ? 'R' : 'P');
           const newForm = [...(c.stats.form || []), resultChar].slice(-5) as ("W" | "R" | "P")[];
 
+          const financeLogsToAdd: any[] = [];
+          let runningBalance = c.budget;
+
+          if (isHome && additionalRevenues) {
+            if (additionalRevenues.catering > 0) {
+              financeLogsToAdd.push({
+                id: Math.random().toString(36).substr(2, 9),
+                date: new Date().toISOString().split('T')[0],
+                amount: additionalRevenues.catering,
+                type: 'INCOME' as const,
+                description: `Catering i Hospitality (vs ${ctx.awayClub.name})`,
+                previousBalance: runningBalance
+              });
+              runningBalance += additionalRevenues.catering;
+            }
+            if (additionalRevenues.merchandising > 0) {
+              financeLogsToAdd.push({
+                id: Math.random().toString(36).substr(2, 9),
+                date: new Date().toISOString().split('T')[0],
+                amount: additionalRevenues.merchandising,
+                type: 'INCOME' as const,
+                description: `Sklep kibica — merchandising (vs ${ctx.awayClub.name})`,
+                previousBalance: runningBalance
+              });
+              runningBalance += additionalRevenues.merchandising;
+            }
+            if (additionalRevenues.programs > 0) {
+              financeLogsToAdd.push({
+                id: Math.random().toString(36).substr(2, 9),
+                date: new Date().toISOString().split('T')[0],
+                amount: additionalRevenues.programs,
+                type: 'INCOME' as const,
+                description: `Programy meczowe i reklamy LED (vs ${ctx.awayClub.name})`,
+                previousBalance: runningBalance
+              });
+              runningBalance += additionalRevenues.programs;
+            }
+            if (additionalRevenues.parking > 0) {
+              financeLogsToAdd.push({
+                id: Math.random().toString(36).substr(2, 9),
+                date: new Date().toISOString().split('T')[0],
+                amount: additionalRevenues.parking,
+                type: 'INCOME' as const,
+                description: `Parkingi i strefa kibica (vs ${ctx.awayClub.name})`,
+                previousBalance: runningBalance
+              });
+              runningBalance += additionalRevenues.parking;
+            }
+          }
+
           return {
             ...c, 
-            budget: c.budget - matchCost,
+            budget: c.budget + additionalTotal - matchCost,
+            financeHistory: [...financeLogsToAdd, ...(c.financeHistory || [])].slice(0, 50),
             stats: {
               ...c.stats,
               form: newForm
@@ -1799,9 +1853,13 @@ const summary: MatchSummary = {
       <div className={`flex flex-wrap gap-2 mt-1 ${side === 'AWAY' ? 'justify-end' : 'justify-start'}`}>
         
       {goals.map((g, i) => {
-          // TUTAJ WSTAW TEN KOD - Inteligentne formatowanie nazwiska strzelca
-          const nameToDisplay = g.playerName.includes('.') ? g.playerName : g.playerName; 
-          // KONIEC WSTAWKI
+          const playersList = side === 'HOME' ? ctx.homePlayers : ctx.awayPlayers;
+          const foundPlayer = g.scorerId
+            ? playersList.find(px => px.id === g.scorerId)
+            : playersList.find(px => px.lastName === g.playerName);
+          const nameToDisplay = foundPlayer
+            ? `${foundPlayer.firstName.charAt(0)}. ${foundPlayer.lastName}`
+            : g.playerName;
           return (
             <span key={`g-${i}`} className={`text-[9px] font-bold flex items-center gap-1 ${g.isMiss ? 'text-rose-500' : g.varDisallowed ? 'text-slate-500' : 'text-white'}`}>
               {g.isMiss ? '❌' : '⚽'}{' '}
@@ -1812,8 +1870,26 @@ const summary: MatchSummary = {
           );
         })}
 
-        {cards.map((c, i) => <span key={`c-${i}`} className="text-[9px] font-bold text-white flex items-center gap-1">{c.type === MatchEventType.RED_CARD ? '🟥' : '🟨'} {c.playerName}</span>)}
-        {injs.map((j, i) => <span key={`j-${i}`} className="text-[9px] font-bold text-white flex items-center gap-1"><span className={j.type === MatchEventType.INJURY_SEVERE ? 'text-red-500' : 'text-white'}>✚</span> {j.playerName}</span>)}
+        {cards.map((c, i) => {
+          const playersList = side === 'HOME' ? ctx.homePlayers : ctx.awayPlayers;
+          const foundPlayer = playersList.find(px => px.lastName === c.playerName);
+          const cardName = foundPlayer ? `${foundPlayer.firstName.charAt(0)}. ${foundPlayer.lastName}` : c.playerName;
+          return (
+            <span key={`c-${i}`} className="text-[9px] font-bold text-white flex items-center gap-1">
+              {c.type === MatchEventType.RED_CARD ? '🟥' : '🟨'} {cardName} ({c.minute}')
+            </span>
+          );
+        })}
+        {injs.map((j, i) => {
+          const playersList = side === 'HOME' ? ctx.homePlayers : ctx.awayPlayers;
+          const foundPlayer = playersList.find(px => px.lastName === j.playerName);
+          const injName = foundPlayer ? `${foundPlayer.firstName.charAt(0)}. ${foundPlayer.lastName}` : j.playerName;
+          return (
+            <span key={`j-${i}`} className="text-[9px] font-bold text-white flex items-center gap-1">
+              <span className={j.type === MatchEventType.INJURY_SEVERE ? 'text-red-500' : 'text-white'}>✚</span> {injName} ({j.minute}')
+            </span>
+          );
+        })}
       </div>
     );
   };
@@ -1845,7 +1921,7 @@ const SquadList = ({ side, lineup, players, fatigue, injs, subsHistory }: { side
           const liveRating = calculateLiveRating(p, side, matchState);
           const nameWithInitial = `${p.firstName.charAt(0)}. ${p.lastName}`;
           // Poprawiona detekcja goli: sprawdzamy zarówno nazwisko jak i format z inicjałem
-          const goalsCount = (side === 'HOME' ? matchState!.homeGoals : matchState!.awayGoals).filter(g => g.playerName === p.lastName || g.playerName === nameWithInitial).length;
+          const goalsCount = (side === 'HOME' ? matchState!.homeGoals : matchState!.awayGoals).filter(g => !g.isMiss && (g.playerName === p.lastName || g.playerName === nameWithInitial || g.scorerId === p.id)).length;
           const assistsCount = (side === 'HOME' ? matchState!.homeGoals : matchState!.awayGoals).filter(g => g.assistantId === p.id).length;
           const f = fatigue[pid] || 100;
           const isSentOff = matchState!.sentOffIds.includes(pid);
