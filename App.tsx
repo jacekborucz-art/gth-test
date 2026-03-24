@@ -47,6 +47,22 @@ import { CLSFDrawView } from './components/views/CLSFDrawView';
 import { PreMatchCLFinalView } from './components/views/PreMatchCLFinalView';
 import { PostMatchCLFinalView } from './components/views/PostMatchCLFinalView';
 import { EuropeanClubsView } from './components/views/EuropeanClubsView';
+import { ELDrawView } from './LECupEngine/ELDrawView';
+import { ELR2QDrawView } from './LECupEngine/ELR2QDrawView';
+import { ELHistoryView } from './LECupEngine/ELHistoryView';
+import { CONFDrawView } from './LECupEngine/CONFDrawView';
+import { CONFR2QDrawView } from './LECupEngine/CONFR2QDrawView';
+import { CONFHistoryView } from './LECupEngine/CONFHistoryView';
+import { ELGroupDrawView } from './components/views/ELGroupDrawView';
+import { CONFGroupDrawView } from './LECupEngine/CONFGroupDrawView';
+import { CONFR16DrawView } from './LECupEngine/CONFR16DrawView';
+import { CONFQFDrawView } from './LECupEngine/CONFQFDrawView';
+import { CONFSFDrawView } from './LECupEngine/CONFSFDrawView';
+import { CONFFinalDrawView } from './LECupEngine/CONFFinalDrawView';
+import { ELR16DrawView } from './components/views/ELR16DrawView';
+import { ELQFDrawView } from './components/views/ELQFDrawView';
+import { ELSFDrawView } from './components/views/ELSFDrawView';
+import { ELFinalDrawView } from './components/views/ELFinalDrawView';
 
 // Internal component to handle view switching
 const AppContent: React.FC = () => {
@@ -57,6 +73,38 @@ const AppContent: React.FC = () => {
 
       case ViewState.CL_HISTORY:
   return <CLHistoryView />;
+case ViewState.EL_DRAW:
+  return <ELDrawView />;
+case ViewState.EL_R2Q_DRAW:
+  return <ELR2QDrawView />;
+case ViewState.EL_HISTORY:
+  return <ELHistoryView />;
+case ViewState.CONF_DRAW:
+  return <CONFDrawView />;
+case ViewState.CONF_R2Q_DRAW:
+  return <CONFR2QDrawView />;
+case ViewState.CONF_HISTORY:
+  return <CONFHistoryView />;
+case ViewState.CONF_GROUP_DRAW:
+  return <CONFGroupDrawView />;
+case ViewState.CONF_R16_DRAW:
+  return <CONFR16DrawView />;
+case ViewState.CONF_QF_DRAW:
+  return <CONFQFDrawView />;
+case ViewState.CONF_SF_DRAW:
+  return <CONFSFDrawView />;
+case ViewState.CONF_FINAL_DRAW:
+  return <CONFFinalDrawView />;
+case ViewState.EL_GROUP_DRAW:
+  return <ELGroupDrawView />;
+case ViewState.EL_R16_DRAW:
+  return <ELR16DrawView />;
+case ViewState.EL_QF_DRAW:
+  return <ELQFDrawView />;
+case ViewState.EL_SF_DRAW:
+  return <ELSFDrawView />;
+case ViewState.EL_FINAL_DRAW:
+  return <ELFinalDrawView />;
 case ViewState.PRE_MATCH_CL_STUDIO:
   return <PreMatchCLStudioView />;
 

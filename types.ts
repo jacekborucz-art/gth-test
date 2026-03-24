@@ -53,6 +53,22 @@ export enum ViewState {
   MATCH_LIVE_CL = 'MATCH_LIVE_CL',
   CL_BRACKET = 'CL_BRACKET',
   CL_HISTORY = 'CL_HISTORY',
+  EL_DRAW = 'EL_DRAW',
+  CONF_DRAW = 'CONF_DRAW',
+  CONF_R2Q_DRAW = 'CONF_R2Q_DRAW',
+  CONF_GROUP_DRAW = 'CONF_GROUP_DRAW',
+  CONF_R16_DRAW = 'CONF_R16_DRAW',
+  CONF_QF_DRAW = 'CONF_QF_DRAW',
+  CONF_SF_DRAW = 'CONF_SF_DRAW',
+  CONF_HISTORY = 'CONF_HISTORY',
+  EL_R2Q_DRAW = 'EL_R2Q_DRAW',
+  EL_GROUP_DRAW = 'EL_GROUP_DRAW',
+  EL_R16_DRAW = 'EL_R16_DRAW',
+  EL_QF_DRAW = 'EL_QF_DRAW',
+  EL_SF_DRAW = 'EL_SF_DRAW',
+  EL_FINAL_DRAW = 'EL_FINAL_DRAW',
+  CONF_FINAL_DRAW = 'CONF_FINAL_DRAW',
+  EL_HISTORY = 'EL_HISTORY',
   CL_R16_DRAW = 'CL_R16_DRAW',
   CL_QF_DRAW = 'CL_QF_DRAW',
   CL_SF_DRAW = 'CL_SF_DRAW',
@@ -135,7 +151,26 @@ export enum Region {
   ENGLAND = 'ENGLAND',
   GERMANY = 'GERMANY',
   ITALY = 'ITALY',
-  FRANCE = 'FRANCE'
+  FRANCE = 'FRANCE',
+  JAPAN = 'JAPAN',
+  KOREA = 'KOREA',
+  ARGENTINA = 'ARGENTINA',
+  BRAZIL = 'BRAZIL',
+  TURKEY = 'TURKEY',
+  ARABIA = 'ARABIA',
+  FINLAND = 'FINLAND',
+  GEORGIA = 'GEORGIA',
+  ARMENIA = 'ARMENIA',
+  ALBANIA = 'ALBANIA',
+  ROMANIA = 'ROMANIA',
+  BALTIC = 'BALTIC',
+  BENELUX = 'BENELUX',
+  HUNGARIAN = 'HUNGARIAN',
+  MALTESE = 'MALTESE',
+  ISRAELI = 'ISRAELI',
+  GREEK = 'GREEK',
+  AZERBAIJANI = 'AZERBAIJANI',
+  KAZAKH = 'KAZAKH'
 }
 
 export enum PlayerPosition {
@@ -202,6 +237,48 @@ export enum CompetitionType {
   CL_SF_RETURN = 'CL_SF_RETURN',
   CL_FINAL = 'CL_FINAL',
   CL_FINAL_DRAW = 'CL_FINAL_DRAW',
+
+  // ── Liga Europy UEFA ──────────────────────────────────────────────────────
+  EL_R1Q_DRAW = 'EL_R1Q_DRAW',
+  EL_R1Q = 'EL_R1Q',
+  EL_R1Q_RETURN = 'EL_R1Q_RETURN',
+  EL_R2Q_DRAW = 'EL_R2Q_DRAW',
+  EL_R2Q = 'EL_R2Q',
+  EL_R2Q_RETURN = 'EL_R2Q_RETURN',
+  EL_GROUP_DRAW = 'EL_GROUP_DRAW',
+  EL_GROUP_STAGE = 'EL_GROUP_STAGE',
+  EL_R16_DRAW = 'EL_R16_DRAW',
+  EL_R16 = 'EL_R16',
+  EL_R16_RETURN = 'EL_R16_RETURN',
+  EL_QF_DRAW = 'EL_QF_DRAW',
+  EL_QF = 'EL_QF',
+  EL_QF_RETURN = 'EL_QF_RETURN',
+  EL_SF_DRAW = 'EL_SF_DRAW',
+  EL_SF = 'EL_SF',
+  EL_SF_RETURN = 'EL_SF_RETURN',
+  EL_FINAL_DRAW = 'EL_FINAL_DRAW',
+  EL_FINAL = 'EL_FINAL',
+
+  // ── Liga Pucharu Konferencji UEFA ─────────────────────────────────────────
+  CONF_R1Q_DRAW = 'CONF_R1Q_DRAW',
+  CONF_R1Q = 'CONF_R1Q',
+  CONF_R1Q_RETURN = 'CONF_R1Q_RETURN',
+  CONF_R2Q_DRAW = 'CONF_R2Q_DRAW',
+  CONF_R2Q = 'CONF_R2Q',
+  CONF_R2Q_RETURN = 'CONF_R2Q_RETURN',
+  CONF_GROUP_DRAW = 'CONF_GROUP_DRAW',
+  CONF_GROUP_STAGE = 'CONF_GROUP_STAGE',
+  CONF_R16_DRAW = 'CONF_R16_DRAW',
+  CONF_R16 = 'CONF_R16',
+  CONF_R16_RETURN = 'CONF_R16_RETURN',
+  CONF_QF_DRAW = 'CONF_QF_DRAW',
+  CONF_QF = 'CONF_QF',
+  CONF_QF_RETURN = 'CONF_QF_RETURN',
+  CONF_SF_DRAW = 'CONF_SF_DRAW',
+  CONF_SF = 'CONF_SF',
+  CONF_SF_RETURN = 'CONF_SF_RETURN',
+  CONF_FINAL_DRAW = 'CONF_FINAL_DRAW',
+  CONF_FINAL = 'CONF_FINAL',
 }
 
 export enum SlotType {
@@ -355,6 +432,7 @@ export interface Club {
   stadiumName: string;
   stadiumCapacity: number;
   reputation: number;
+  country?: string;
   isDefaultActive: boolean;
   colorPrimary?: string;
   colorSecondary?: string;
@@ -702,6 +780,7 @@ export interface MatchHistoryEntry {
   attendance?: number;
   goals: { playerName: string; minute: number; teamId: string; isPenalty: boolean }[];
   cards: { playerName: string; minute: number; teamId: string; type: 'YELLOW' | 'RED' | 'SECOND_YELLOW' }[];
+  substitutions?: { playerOutName: string; playerInName: string; minute: number; teamId: string }[];
 }
 export interface LeagueRoundResults {
   dateKey: string;

@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { useGame } from '../../context/GameContext';
 import { ViewState, EventKind, CompetitionType, Club, MailMessage, MailType } from '../../types';
+import { CalendarEngine } from '../../services/CalendarEngine';
 import stadionBg from '../../Graphic/themes/stadion.png';
 import { Card } from '../ui/Card';
 import { LineupService } from '../../services/LineupService';
@@ -30,10 +31,12 @@ export const Dashboard: React.FC = () => {
     markMessageRead,
     lastMatchSummary,
    processBackgroundCupMatches,
+   processCLMatchDay,
    coaches,
    viewCoachDetails,
     fixtures,
     confirmSeasonEnd,
+    setElHistoryInitialRound,
   } = useGame();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -116,61 +119,51 @@ const boardConfidence = useMemo(() => {
   }, [lineups, userTeamId, players]);
 
   const actionConfig = useMemo(() => {
-    // Brak nextEvent — po prostu przesuń dzień
-    if (!nextEvent) {
-      return { text: "NASTĘPNY DZIEŃ", action: advanceDay, isMatch: false, disabled: isJumping };
-    }
+    const todayEvent = (seasonTemplate && userTeamId)
+      ? CalendarEngine.getPrimaryEventForDate(currentDate, seasonTemplate, fixtures, userTeamId, clubs)
+      : null;
 
-    const isToday = nextEvent.startDate.toDateString() === currentDate.toDateString();
-
-    // Następne zdarzenie nie jest dziś — pokaż przycisk skoku
-    if (!isToday) {
+    // ── Zakończenie sezonu ─────────────────────────────────────────────────
+    if (todayEvent?.slot.competition === CompetitionType.OFF_SEASON) {
       return {
-        text: isJumping ? "PRZETWARZANIE..." : `⚽ ${nextEvent.label.toUpperCase()}`,
-        action: () => jumpToDate(nextEvent.startDate),
+        text: 'NOWY SEZON 🏆',
+        action: confirmSeasonEnd,
         isMatch: false,
         disabled: isJumping,
+        info: 'Zakończenie sezonu — przejdź do kolejnego!',
       };
     }
 
-    // Dzisiaj jest zdarzenie — określ akcję na podstawie rodzaju
-    switch (nextEvent.kind) {
+    // ── Zdarzenia gracza (participation === 'player') ─────────────────────
+    if (todayEvent?.participation === 'player') {
+      switch (todayEvent.kind) {
 
-      // ── Liga ──────────────────────────────────────────────────────────────
-      case EventKind.MATCH_LEAGUE:
-      case EventKind.MATCH_FRIENDLY:
-        return {
-          text: lineupValidation.valid ? 'DZIEŃ MECZOWY ⚽' : 'BŁĄD SKŁADU ⚠️',
-          action: () => lineupValidation.valid
-            ? navigateTo(ViewState.PRE_MATCH_STUDIO)
-            : navigateTo(ViewState.SQUAD_VIEW),
-          isMatch: true,
-          disabled: isJumping,
-          error: lineupValidation.valid ? null : lineupValidation.error,
-        };
-
-      // ── Superpuchar Polski ─────────────────────────────────────────────────
-      case EventKind.MATCH_SUPER_CUP: {
-        const scFix = fixtures.find(f => f.id.startsWith(`SUPER_CUP_${currentDate.getFullYear()}`));
-        const isUserPlaying = !!scFix &&
-          (scFix.homeTeamId === userTeamId || scFix.awayTeamId === userTeamId);
-        return {
-          text: 'SUPERPUCHAR POLSKI ✨',
-          action: () => {
-            if (isUserPlaying) navigateTo(ViewState.PRE_MATCH_CUP_STUDIO);
-            else { processBackgroundCupMatches(); navigateTo(ViewState.SCORE_RESULTS_POLISH_CUP); }
-          },
-          isMatch: isUserPlaying,
-          disabled: isJumping,
-          info: isUserPlaying ? undefined : 'Symulacja wyników',
-        };
-      }
-
-      // ── Puchar Polski — mecz ───────────────────────────────────────────────
-      case EventKind.MATCH_POLISH_CUP:
-        if (myClub?.isInPolishCup) {
+        // ── Liga ────────────────────────────────────────────────────────────
+        case EventKind.MATCH_LEAGUE:
+        case EventKind.MATCH_FRIENDLY:
           return {
-            text: lineupValidation.valid ? `PUCHAR POLSKI 🏆` : 'BŁĄD SKŁADU ⚠️',
+            text: lineupValidation.valid ? 'DZIEŃ MECZOWY ⚽' : 'BŁĄD SKŁADU ⚠️',
+            action: () => lineupValidation.valid
+              ? navigateTo(ViewState.PRE_MATCH_STUDIO)
+              : navigateTo(ViewState.SQUAD_VIEW),
+            isMatch: true,
+            disabled: isJumping,
+            error: lineupValidation.valid ? null : lineupValidation.error,
+          };
+
+        // ── Superpuchar Polski ───────────────────────────────────────────────
+        case EventKind.MATCH_SUPER_CUP:
+          return {
+            text: 'SUPERPUCHAR POLSKI ✨',
+            action: () => navigateTo(ViewState.PRE_MATCH_CUP_STUDIO),
+            isMatch: true,
+            disabled: isJumping,
+          };
+
+        // ── Puchar Polski — mecz ─────────────────────────────────────────────
+        case EventKind.MATCH_POLISH_CUP:
+          return {
+            text: lineupValidation.valid ? 'PUCHAR POLSKI 🏆' : 'BŁĄD SKŁADU ⚠️',
             action: () => lineupValidation.valid
               ? navigateTo(ViewState.PRE_MATCH_CUP_STUDIO)
               : navigateTo(ViewState.SQUAD_VIEW),
@@ -178,70 +171,175 @@ const boardConfidence = useMemo(() => {
             disabled: isJumping,
             error: lineupValidation.valid ? null : lineupValidation.error,
           };
+
+        // ── Liga Mistrzów / Liga Europy — mecz ──────────────────────────
+        case EventKind.MATCH_EURO: {
+          const isCLFinal = todayEvent.slot.competition === CompetitionType.CL_FINAL;
+          const isELFinal = todayEvent.slot.competition === CompetitionType.EL_FINAL;
+          const isELComp = todayEvent.slot.competition === CompetitionType.EL_QF ||
+                           todayEvent.slot.competition === CompetitionType.EL_QF_RETURN ||
+                           todayEvent.slot.competition === CompetitionType.EL_SF ||
+                           todayEvent.slot.competition === CompetitionType.EL_SF_RETURN ||
+                           todayEvent.slot.competition === CompetitionType.EL_FINAL;
+          return {
+            text: isCLFinal ? 'FINAŁ LIGI MISTRZÓW ⭐' : isELFinal ? '🟠 FINAŁ LIGI EUROPY' : isELComp ? '🟠 LIGA EUROPY' : 'LIGA MISTRZÓW ⭐',
+            action: () => {
+              if (isELFinal) { processCLMatchDay(); navigateTo(ViewState.POST_MATCH_CL_STUDIO); }
+              else { navigateTo(isCLFinal ? ViewState.PRE_MATCH_CL_FINAL : ViewState.PRE_MATCH_CL_STUDIO); }
+            },
+            isMatch: true,
+            disabled: isJumping,
+          };
         }
+
+        // ── Puchar Polski — losowanie ────────────────────────────────────────
+        case EventKind.CUP_DRAW:
+          return {
+            text: '🏆 LOSOWANIE PUCHARU POLSKI',
+            action: advanceDay,
+            isMatch: false,
+            disabled: isJumping,
+          };
+
+        // ── Liga Mistrzów / Ligi Europy — losowanie ──────────────────────────
+        case EventKind.CL_DRAW:
+          return {
+            text: todayEvent.slot.competition === CompetitionType.EL_R1Q_DRAW
+              ? '🟠 LOSOWANIE LIGI EUROPY'
+              : todayEvent.slot.competition === CompetitionType.EL_R2Q_DRAW
+                ? '🟠 LOSOWANIE LE: RUNDA 2 PREELIMINACYJNA'
+                : todayEvent.slot.competition === CompetitionType.EL_GROUP_DRAW
+                  ? '🟠 LOSOWANIE LE: FAZA GRUPOWA'
+                  : todayEvent.slot.competition === CompetitionType.EL_R16_DRAW
+                  ? '🟠 LOSOWANIE LE: 1/8 FINAŁU'
+                  : todayEvent.slot.competition === CompetitionType.EL_QF_DRAW
+                    ? '🟠 LOSOWANIE LE: 1/4 FINAŁU'
+                    : todayEvent.slot.competition === CompetitionType.EL_SF_DRAW
+                      ? '🟠 LOSOWANIE LE: 1/2 FINAŁU'
+                      : todayEvent.slot.competition === CompetitionType.EL_FINAL_DRAW
+                        ? '🟠 OGŁOSZENIE FINALISTÓW LE'
+                        : todayEvent.slot.competition === CompetitionType.CONF_R1Q_DRAW
+                          ? '🟢 LOSOWANIE LIGI KONFERENCJI'                          : todayEvent.slot.competition === CompetitionType.CONF_R2Q_DRAW
+                            ? '🟢 LOSOWANIE LK: RUNDA 2 PREELIMINACYJNA'                          : todayEvent.slot.competition === CompetitionType.CONF_GROUP_DRAW
+                              ? '🟢 LOSOWANIE LK: FAZA GRUPOWA'                              : todayEvent.slot.competition === CompetitionType.CONF_R16_DRAW
+                                ? '🟢 LOSOWANIE LK: 1/8 FINAŁU'                                : todayEvent.slot.competition === CompetitionType.CONF_QF_DRAW
+                                  ? '🟢 LOSOWANIE LK: 1/4 FINAŁU'
+                                  : todayEvent.slot.competition === CompetitionType.CONF_SF_DRAW
+                                    ? '🟢 LOSOWANIE LK: 1/2 FINAŁU'
+                                    : todayEvent.slot.competition === CompetitionType.CONF_FINAL_DRAW
+                                      ? '🟢 OGŁOSZENIE FINALISTÓW LK'
+                                      : '⭐ LOSOWANIE LIGI MISTRZÓW',
+            action: advanceDay,
+            isMatch: false,
+            disabled: isJumping,
+          };
+
+        default:
+          break;
+      }
+    }
+
+    // ── Zdarzenia tła (participation === 'background') ────────────────────
+    if (todayEvent?.participation === 'background') {
+      if (todayEvent.slot.competition === CompetitionType.SUPER_CUP) {
+        return {
+          text: 'SUPERPUCHAR POLSKI ✨ (wyniki)',
+          action: () => { processBackgroundCupMatches(); navigateTo(ViewState.SCORE_RESULTS_POLISH_CUP); },
+          isMatch: false,
+          disabled: isJumping,
+          info: 'Symulacja wyników',
+        };
+      }
+      if (todayEvent.slot.competition === CompetitionType.POLISH_CUP) {
         return {
           text: 'PUCHAR POLSKI 🏆 (wyniki)',
           action: () => { processBackgroundCupMatches(); navigateTo(ViewState.SCORE_RESULTS_POLISH_CUP); },
           isMatch: false,
           disabled: isJumping,
-          info: 'Nasz zespół odpadł — symulacja wyników',
-        };
-
-      // ── Puchar Polski — losowanie ──────────────────────────────────────────
-      case EventKind.CUP_DRAW:
-        return {
-          text: '🏆 LOSOWANIE PUCHARU POLSKI',
-          action: advanceDay,
-          isMatch: false,
-          disabled: isJumping,
-        };
-
-      // ── Liga Mistrzów — mecz ───────────────────────────────────────────────
-      case EventKind.MATCH_EURO: {
-        const isFinal = nextEvent.competition === CompetitionType.CL_FINAL;
-        return {
-          text: isFinal ? 'FINAŁ LIGI MISTRZÓW ⭐' : 'LIGA MISTRZÓW ⭐',
-          action: () => navigateTo(isFinal ? ViewState.PRE_MATCH_CL_FINAL : ViewState.PRE_MATCH_CL_STUDIO),
-          isMatch: true,
-          disabled: isJumping,
+          info: 'Symulacja wyników',
         };
       }
-
-      // ── Liga Mistrzów — losowanie ──────────────────────────────────────────
-      case EventKind.CL_DRAW:
+      // ── Liga Mistrzów — mecze (gracz nie uczestniczy) ────────────────────
+      const CL_MATCH_COMPS = [
+        CompetitionType.CL_R1Q, CompetitionType.CL_R1Q_RETURN,
+        CompetitionType.CL_R2Q, CompetitionType.CL_R2Q_RETURN,
+        CompetitionType.CL_GROUP_STAGE,
+        CompetitionType.CL_R16, CompetitionType.CL_R16_RETURN,
+        CompetitionType.CL_QF, CompetitionType.CL_QF_RETURN,
+        CompetitionType.CL_SF, CompetitionType.CL_SF_RETURN,
+      ];
+      if ((CL_MATCH_COMPS as string[]).includes(todayEvent.slot.competition as string)) {
         return {
-          text: '⭐ LOSOWANIE LIGI MISTRZÓW',
-          action: advanceDay,
+          text: '⭐ LIGA MISTRZÓW – WYNIKI',
+          action: () => { processCLMatchDay(); navigateTo(ViewState.POST_MATCH_CL_STUDIO); },
           isMatch: false,
           disabled: isJumping,
+          info: 'Wyniki meczów Ligi Mistrzów',
         };
-
-      // ── Okno transferowe ───────────────────────────────────────────────────
-      case EventKind.TRANSFER_WINDOW:
+      }
+      // ── Liga Europy — mecze (gracz nie uczestniczy) ──────────────────────
+      if (todayEvent.slot.competition === CompetitionType.EL_R1Q ||
+          todayEvent.slot.competition === CompetitionType.EL_R1Q_RETURN ||
+          todayEvent.slot.competition === CompetitionType.EL_R2Q ||
+          todayEvent.slot.competition === CompetitionType.EL_R2Q_RETURN ||
+          todayEvent.slot.competition === CompetitionType.EL_GROUP_STAGE ||
+          todayEvent.slot.competition === CompetitionType.EL_R16 ||
+          todayEvent.slot.competition === CompetitionType.EL_R16_RETURN ||
+          todayEvent.slot.competition === CompetitionType.EL_QF ||
+          todayEvent.slot.competition === CompetitionType.EL_QF_RETURN ||
+          todayEvent.slot.competition === CompetitionType.EL_SF ||
+          todayEvent.slot.competition === CompetitionType.EL_SF_RETURN ||
+          todayEvent.slot.competition === CompetitionType.EL_FINAL) {
+        const elRoundKey =
+          todayEvent.slot.competition === CompetitionType.EL_R1Q || todayEvent.slot.competition === CompetitionType.EL_R1Q_RETURN ? 'R1Q' :
+          todayEvent.slot.competition === CompetitionType.EL_R2Q || todayEvent.slot.competition === CompetitionType.EL_R2Q_RETURN ? 'R2Q' :
+          todayEvent.slot.competition === CompetitionType.EL_GROUP_STAGE ? 'GS' :
+          todayEvent.slot.competition === CompetitionType.EL_R16 || todayEvent.slot.competition === CompetitionType.EL_R16_RETURN ? 'R16' :
+          todayEvent.slot.competition === CompetitionType.EL_QF || todayEvent.slot.competition === CompetitionType.EL_QF_RETURN ? 'QF' :
+          todayEvent.slot.competition === CompetitionType.EL_SF || todayEvent.slot.competition === CompetitionType.EL_SF_RETURN ? 'SF' :
+          todayEvent.slot.competition === CompetitionType.EL_FINAL ? 'FINAL' : 'R1Q';
         return {
-          text: 'OKNO TRANSFEROWE 📝',
-          action: advanceDay,
+          text: '🟠 LIGA EUROPY – WYNIKI',
+          action: elRoundKey === 'FINAL'
+            ? () => { processCLMatchDay(); navigateTo(ViewState.POST_MATCH_CL_STUDIO); }
+            : () => { processCLMatchDay(); setElHistoryInitialRound(elRoundKey); navigateTo(ViewState.EL_HISTORY); },
           isMatch: false,
           disabled: isJumping,
-          info: 'Dzień informacyjny',
+          info: 'Wyniki meczów Ligi Europy',
         };
-
-      // ── Zakończenie sezonu — gracz czyta emaile i klika przycisk ─────────
-      case EventKind.OFF_SEASON:
+      }
+      // ── Liga Konferencji — mecze (gracz nie uczestniczy) ─────────────────
+      if (todayEvent.slot.competition === CompetitionType.CONF_R1Q ||
+          todayEvent.slot.competition === CompetitionType.CONF_R1Q_RETURN ||
+          todayEvent.slot.competition === CompetitionType.CONF_R2Q ||
+          todayEvent.slot.competition === CompetitionType.CONF_R2Q_RETURN ||
+          todayEvent.slot.competition === CompetitionType.CONF_GROUP_STAGE ||
+          todayEvent.slot.competition === CompetitionType.CONF_R16 ||
+          todayEvent.slot.competition === CompetitionType.CONF_R16_RETURN ||
+          todayEvent.slot.competition === CompetitionType.CONF_QF ||
+          todayEvent.slot.competition === CompetitionType.CONF_QF_RETURN ||
+          todayEvent.slot.competition === CompetitionType.CONF_SF ||
+          todayEvent.slot.competition === CompetitionType.CONF_SF_RETURN ||
+          todayEvent.slot.competition === CompetitionType.CONF_FINAL) {
+        const confRoundLabel =
+          todayEvent.slot.competition === CompetitionType.CONF_R16 || todayEvent.slot.competition === CompetitionType.CONF_R16_RETURN ? '1/8 FINAŁU' :
+          todayEvent.slot.competition === CompetitionType.CONF_QF || todayEvent.slot.competition === CompetitionType.CONF_QF_RETURN ? '1/4 FINAŁU' :
+          todayEvent.slot.competition === CompetitionType.CONF_SF || todayEvent.slot.competition === CompetitionType.CONF_SF_RETURN ? '1/2 FINAŁU' :
+          todayEvent.slot.competition === CompetitionType.CONF_FINAL ? 'FINAŁ' : '';
         return {
-          text: 'NOWY SEZON 🏆',
-          action: confirmSeasonEnd,
+          text: confRoundLabel ? `🟢 LK ${confRoundLabel} – WYNIKI` : '🟢 LIGA KONFERENCJI – WYNIKI',
+          action: () => { processCLMatchDay(); navigateTo(ViewState.CONF_HISTORY); },
           isMatch: false,
           disabled: isJumping,
-          info: 'Zakończenie sezonu — przejdź do kolejnego!',
+          info: 'Wyniki meczów Ligi Konferencji',
         };
-
-      // ── Domyślnie: przesuń dzień ───────────────────────────────────────────
-      default:
-        return { text: 'KONTYNUUJ', action: advanceDay, isMatch: false, disabled: isJumping };
+      }
     }
-  }, [nextEvent, currentDate, advanceDay, jumpToDate, navigateTo, lineupValidation, isJumping,
-      myClub, processBackgroundCupMatches, fixtures, userTeamId, confirmSeasonEnd]);
+
+    // ── Domyślnie: przesuń dzień ───────────────────────────────────────────
+    return { text: isJumping ? 'PRZETWARZANIE...' : 'NASTĘPNY DZIEŃ', action: advanceDay, isMatch: false, disabled: isJumping };
+  }, [currentDate, advanceDay, navigateTo, lineupValidation, isJumping,
+      processBackgroundCupMatches, processCLMatchDay, fixtures, userTeamId, confirmSeasonEnd, seasonTemplate, clubs]);
 
   const searchResults = useMemo(() => {
     if (!searchTerm || searchTerm.length < 2) return [];

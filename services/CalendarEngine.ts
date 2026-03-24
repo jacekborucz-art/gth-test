@@ -158,7 +158,8 @@ export const CalendarEngine = {
       // Dla pozostałych slotów: rozwiązujemy uczestnictwo
       const ev = this._resolveSlot(slot, slot.start, allFixtures, userTeamId, clubs);
       if (!ev) continue;
-      if (ev.participation === 'info') continue; // pomijamy czysto informacyjne
+      if (ev.participation === 'info') continue;        // pomijamy czysto informacyjne
+      if (ev.participation === 'background') continue;  // pomijamy tło — te dni auto-przeskakują podczas jumpToDate
 
       return {
         startDate: slot.start,
@@ -220,8 +221,8 @@ export const CalendarEngine = {
         const fixture = allFixtures.find(
           f => f.id.startsWith(`SUPER_CUP_${year}`) && f.status === MatchStatus.SCHEDULED,
         );
-        const isUserIn = !!fixture &&
-          (fixture.homeTeamId === userTeamId || fixture.awayTeamId === userTeamId);
+        if (!fixture) return null;
+        const isUserIn = fixture.homeTeamId === userTeamId || fixture.awayTeamId === userTeamId;
 
         return {
           slot,
@@ -229,12 +230,12 @@ export const CalendarEngine = {
           participation: isUserIn ? 'player' : 'background',
           targetView: ViewState.PRE_MATCH_CUP_STUDIO,
           fixture,
-          opponentClubId: isUserIn && fixture
+          opponentClubId: isUserIn
             ? fixture.homeTeamId === userTeamId
               ? fixture.awayTeamId
               : fixture.homeTeamId
             : undefined,
-          isHome: isUserIn && fixture ? fixture.homeTeamId === userTeamId : undefined,
+          isHome: isUserIn ? fixture.homeTeamId === userTeamId : undefined,
         };
       }
 
@@ -261,6 +262,13 @@ export const CalendarEngine = {
         }
 
         // Dzień meczowy Pucharu
+        const hasAnyCupToday = allFixtures.some(
+          f =>
+            f.date.toDateString() === dateStr &&
+            f.leagueId === CompetitionType.POLISH_CUP &&
+            f.status === MatchStatus.SCHEDULED,
+        );
+        if (!hasAnyCupToday) return null;
         const fixture = allFixtures.find(
           f =>
             f.date.toDateString() === dateStr &&
@@ -284,6 +292,207 @@ export const CalendarEngine = {
               : fixture.homeTeamId
             : undefined,
           isHome: fixture ? fixture.homeTeamId === userTeamId : undefined,
+        };
+      }
+      // ── LE: LOSOWANIE R1Q ─────────────────────────────────────────────────────
+      case CompetitionType.EL_R1Q_DRAW: {
+        return {
+          slot,
+          kind: EventKind.CL_DRAW,
+          participation: 'player',
+          targetView: ViewState.EL_DRAW,
+        };
+      }
+
+      // ── LE: LOSOWANIE R2Q ─────────────────────────────────────────────────────
+      case CompetitionType.EL_R2Q_DRAW: {
+        return {
+          slot,
+          kind: EventKind.CL_DRAW,
+          participation: 'player',
+          targetView: ViewState.EL_R2Q_DRAW,
+        };
+      }
+
+      // ── LE: MECZE PREELIMINACYJNE R1Q ─────────────────────────────────────
+      case CompetitionType.EL_R1Q:
+      case CompetitionType.EL_R1Q_RETURN: {
+        // Polskie drużyny nie uczestniczą — zawsze background
+        const hasAnyScheduled = allFixtures.some(
+          f =>
+            f.date.toDateString() === dateStr &&
+            (f.leagueId === CompetitionType.EL_R1Q || f.leagueId === CompetitionType.EL_R1Q_RETURN) &&
+            f.status === MatchStatus.SCHEDULED,
+        );
+        if (!hasAnyScheduled) return null;
+        return {
+          slot,
+          kind: EventKind.MATCH_EURO,
+          participation: 'background',
+          targetView: ViewState.DASHBOARD,
+        };
+      }
+
+      // ── LE: MECZE PREELIMINACYJNE R2Q ─────────────────────────────────────
+      case CompetitionType.EL_R2Q:
+      case CompetitionType.EL_R2Q_RETURN: {
+        const hasAnyScheduledR2Q = allFixtures.some(
+          f =>
+            f.date.toDateString() === dateStr &&
+            (f.leagueId === CompetitionType.EL_R2Q || f.leagueId === CompetitionType.EL_R2Q_RETURN) &&
+            f.status === MatchStatus.SCHEDULED,
+        );
+        if (!hasAnyScheduledR2Q) return null;
+        return {
+          slot,
+          kind: EventKind.MATCH_EURO,
+          participation: 'background',
+          targetView: ViewState.DASHBOARD,
+        };
+      }
+
+      // ── LE: LOSOWANIE FAZY GRUPOWEJ ───────────────────────────────────────
+      case CompetitionType.EL_GROUP_DRAW: {
+        return {
+          slot,
+          kind: EventKind.CL_DRAW,
+          participation: 'player',
+          targetView: ViewState.EL_GROUP_DRAW,
+        };
+      }
+
+      // ── LE: FAZA GRUPOWA ──────────────────────────────────────────────────
+      case CompetitionType.EL_GROUP_STAGE: {
+        const hasAnyScheduledELGS = allFixtures.some(
+          f =>
+            f.date.toDateString() === dateStr &&
+            f.leagueId === CompetitionType.EL_GROUP_STAGE &&
+            f.status === MatchStatus.SCHEDULED,
+        );
+        if (!hasAnyScheduledELGS) return null;
+        return {
+          slot,
+          kind: EventKind.MATCH_EURO,
+          participation: 'background',
+          targetView: ViewState.DASHBOARD,
+        };
+      }
+
+      // ── LE: LOSOWANIE 1/8 FINAŁU ─────────────────────────────────────────
+      case CompetitionType.EL_R16_DRAW: {
+        return {
+          slot,
+          kind: EventKind.CL_DRAW,
+          participation: 'player',
+          targetView: ViewState.EL_R16_DRAW,
+        };
+      }
+
+      // ── LE: 1/8 FINAŁU ───────────────────────────────────────────────────
+      case CompetitionType.EL_R16:
+      case CompetitionType.EL_R16_RETURN: {
+        const hasAnyScheduledELR16 = allFixtures.some(
+          f =>
+            f.date.toDateString() === dateStr &&
+            (f.leagueId === CompetitionType.EL_R16 || f.leagueId === CompetitionType.EL_R16_RETURN) &&
+            f.status === MatchStatus.SCHEDULED,
+        );
+        if (!hasAnyScheduledELR16) return null;
+        return {
+          slot,
+          kind: EventKind.MATCH_EURO,
+          participation: 'background',
+          targetView: ViewState.DASHBOARD,
+        };
+      }
+
+      // ── LE: LOSOWANIE 1/4 FINAŁU ─────────────────────────────────────────
+      case CompetitionType.EL_QF_DRAW: {
+        return {
+          slot,
+          kind: EventKind.CL_DRAW,
+          participation: 'player',
+          targetView: ViewState.EL_QF_DRAW,
+        };
+      }
+
+      // ── LE: LOSOWANIE 1/2 FINAŁU ─────────────────────────────────────────
+      case CompetitionType.EL_SF_DRAW: {
+        return {
+          slot,
+          kind: EventKind.CL_DRAW,
+          participation: 'player',
+          targetView: ViewState.EL_SF_DRAW,
+        };
+      }
+
+      // ── LE: OGŁOSZENIE FINALISTÓW ─────────────────────────────────────────
+      case CompetitionType.EL_FINAL_DRAW: {
+        return {
+          slot,
+          kind: EventKind.CL_DRAW,
+          participation: 'player',
+          targetView: ViewState.EL_FINAL_DRAW,
+        };
+      }
+
+      // ── LE: 1/4 FINAŁU ───────────────────────────────────────────────────
+      case CompetitionType.EL_QF:
+      case CompetitionType.EL_QF_RETURN:
+      // ── LE: 1/2 FINAŁU ───────────────────────────────────────────────────
+      case CompetitionType.EL_SF:
+      case CompetitionType.EL_SF_RETURN: {
+        const leagueIdEL = slot.competition as string;
+        const fixtureEL = allFixtures.find(
+          f =>
+            f.date.toDateString() === dateStr &&
+            f.leagueId === leagueIdEL &&
+            (f.homeTeamId === userTeamId || f.awayTeamId === userTeamId) &&
+            f.status === MatchStatus.SCHEDULED,
+        );
+        const hasAnyEL = allFixtures.some(
+          f =>
+            f.date.toDateString() === dateStr &&
+            f.leagueId === leagueIdEL &&
+            f.status === MatchStatus.SCHEDULED,
+        );
+        if (!fixtureEL && !hasAnyEL) return null;
+        return {
+          slot,
+          kind: EventKind.MATCH_EURO,
+          participation: fixtureEL ? 'player' : 'background',
+          targetView: ViewState.PRE_MATCH_CL_STUDIO,
+          fixture: fixtureEL,
+          opponentClubId: fixtureEL
+            ? fixtureEL.homeTeamId === userTeamId
+              ? fixtureEL.awayTeamId
+              : fixtureEL.homeTeamId
+            : undefined,
+          isHome: fixtureEL ? fixtureEL.homeTeamId === userTeamId : undefined,
+        };
+      }
+
+      // ── LE: FINAŁ ─────────────────────────────────────────────────────────
+      case CompetitionType.EL_FINAL: {
+        const fixtureELFinal = allFixtures.find(
+          f =>
+            f.date.toDateString() === dateStr &&
+            f.leagueId === CompetitionType.EL_FINAL &&
+            (f.homeTeamId === userTeamId || f.awayTeamId === userTeamId) &&
+            f.status === MatchStatus.SCHEDULED,
+        );
+        return {
+          slot,
+          kind: EventKind.MATCH_EURO,
+          participation: 'player',
+          targetView: ViewState.PRE_MATCH_CL_STUDIO,
+          fixture: fixtureELFinal,
+          opponentClubId: fixtureELFinal
+            ? fixtureELFinal.homeTeamId === userTeamId
+              ? fixtureELFinal.awayTeamId
+              : fixtureELFinal.homeTeamId
+            : undefined,
+          isHome: fixtureELFinal ? fixtureELFinal.homeTeamId === userTeamId : undefined,
         };
       }
 
@@ -480,7 +689,189 @@ export const CalendarEngine = {
         };
       }
 
+      // ── LK: LOSOWANIE R1Q ─────────────────────────────────────────────────
+      case CompetitionType.CONF_R1Q_DRAW: {
+        return {
+          slot,
+          kind: EventKind.CL_DRAW,
+          participation: 'player',
+          targetView: ViewState.CONF_DRAW,
+        };
+      }
 
+      // ── LK: MECZE PREELIMINACYJNE R1Q ────────────────────────────────────
+      case CompetitionType.CONF_R1Q:
+      case CompetitionType.CONF_R1Q_RETURN: {
+        const hasAnyScheduledCONF = allFixtures.some(
+          f =>
+            f.date.toDateString() === dateStr &&
+            (f.leagueId === CompetitionType.CONF_R1Q || f.leagueId === CompetitionType.CONF_R1Q_RETURN) &&
+            f.status === MatchStatus.SCHEDULED,
+        );
+        if (!hasAnyScheduledCONF) return null;
+        return {
+          slot,
+          kind: EventKind.MATCH_EURO,
+          participation: 'background',
+          targetView: ViewState.DASHBOARD,
+        };
+      }
+
+      // ── LK: LOSOWANIE R2Q ─────────────────────────────────────────────────
+      case CompetitionType.CONF_R2Q_DRAW: {
+        return {
+          slot,
+          kind: EventKind.CL_DRAW,
+          participation: 'player',
+          targetView: ViewState.CONF_R2Q_DRAW,
+        };
+      }
+
+      // ── LK: MECZE PREELIMINACYJNE R2Q ────────────────────────────────────
+      case CompetitionType.CONF_R2Q:
+      case CompetitionType.CONF_R2Q_RETURN: {
+        const hasAnyScheduledCONFR2Q = allFixtures.some(
+          f =>
+            f.date.toDateString() === dateStr &&
+            (f.leagueId === CompetitionType.CONF_R2Q || f.leagueId === CompetitionType.CONF_R2Q_RETURN) &&
+            f.status === MatchStatus.SCHEDULED,
+        );
+        if (!hasAnyScheduledCONFR2Q) return null;
+        return {
+          slot,
+          kind: EventKind.MATCH_EURO,
+          participation: 'background',
+          targetView: ViewState.DASHBOARD,
+        };
+      }
+
+      // ── LK: LOSOWANIE FAZY GRUPOWEJ ───────────────────────────────────────
+      case CompetitionType.CONF_GROUP_DRAW: {
+        return { slot, kind: EventKind.CL_DRAW, participation: 'player', targetView: ViewState.CONF_GROUP_DRAW };
+      }
+
+      // ── LK: FAZA GRUPOWA ──────────────────────────────────────────────────
+      case CompetitionType.CONF_GROUP_STAGE: {
+        const hasAny = allFixtures.some(f =>
+          f.date.toDateString() === dateStr &&
+          f.leagueId === CompetitionType.CONF_GROUP_STAGE &&
+          f.status === MatchStatus.SCHEDULED,
+        );
+        if (!hasAny) return null;
+        return {
+          slot,
+          kind: EventKind.MATCH_EURO,
+          participation: 'background',
+          targetView: ViewState.DASHBOARD,
+        };
+      }
+
+      // ── LK: LOSOWANIE 1/8 FINAŁU ─────────────────────────────────────────
+      case CompetitionType.CONF_R16_DRAW: {
+        return {
+          slot,
+          kind: EventKind.CL_DRAW,
+          participation: 'player',
+          targetView: ViewState.CONF_R16_DRAW,
+        };
+      }
+
+      // ── LK: 1/8 FINAŁU ───────────────────────────────────────────────────
+      case CompetitionType.CONF_R16:
+      case CompetitionType.CONF_R16_RETURN: {
+        const hasAnyScheduledCONFR16 = allFixtures.some(f =>
+          f.date.toDateString() === dateStr &&
+          (f.leagueId === CompetitionType.CONF_R16 || f.leagueId === CompetitionType.CONF_R16_RETURN) &&
+          f.status === MatchStatus.SCHEDULED,
+        );
+        if (!hasAnyScheduledCONFR16) return null;
+        return {
+          slot,
+          kind: EventKind.MATCH_EURO,
+          participation: 'background',
+          targetView: ViewState.DASHBOARD,
+        };
+      }
+
+      // ── LK: LOSOWANIE 1/4 FINAŁU ─────────────────────────────────────────
+      case CompetitionType.CONF_QF_DRAW: {
+        return {
+          slot,
+          kind: EventKind.CL_DRAW,
+          participation: 'player',
+          targetView: ViewState.CONF_QF_DRAW,
+        };
+      }
+
+      // ── LK: 1/4 FINAŁU ───────────────────────────────────────────────────
+      case CompetitionType.CONF_QF:
+      case CompetitionType.CONF_QF_RETURN: {
+        const hasAnyScheduledCONFQF = allFixtures.some(f =>
+          f.date.toDateString() === dateStr &&
+          (f.leagueId === CompetitionType.CONF_QF || f.leagueId === CompetitionType.CONF_QF_RETURN) &&
+          f.status === MatchStatus.SCHEDULED,
+        );
+        if (!hasAnyScheduledCONFQF) return null;
+        return {
+          slot,
+          kind: EventKind.MATCH_EURO,
+          participation: 'background',
+          targetView: ViewState.DASHBOARD,
+        };
+      }
+
+      // ── LK: LOSOWANIE 1/2 FINAŁU ─────────────────────────────────────────
+      case CompetitionType.CONF_SF_DRAW: {
+        return {
+          slot,
+          kind: EventKind.CL_DRAW,
+          participation: 'player',
+          targetView: ViewState.CONF_SF_DRAW,
+        };
+      }
+
+      // ── LK: 1/2 FINAŁU ───────────────────────────────────────────────────
+      case CompetitionType.CONF_SF:
+      case CompetitionType.CONF_SF_RETURN: {
+        const hasAnyScheduledCONFSF = allFixtures.some(f =>
+          f.date.toDateString() === dateStr &&
+          (f.leagueId === CompetitionType.CONF_SF || f.leagueId === CompetitionType.CONF_SF_RETURN) &&
+          f.status === MatchStatus.SCHEDULED,
+        );
+        if (!hasAnyScheduledCONFSF) return null;
+        return {
+          slot,
+          kind: EventKind.MATCH_EURO,
+          participation: 'background',
+          targetView: ViewState.DASHBOARD,
+        };
+      }
+
+      // ── LK: OGŁOSZENIE FINALISTÓW ─────────────────────────────────────────
+      case CompetitionType.CONF_FINAL_DRAW: {
+        return {
+          slot,
+          kind: EventKind.CL_DRAW,
+          participation: 'player',
+          targetView: ViewState.CONF_FINAL_DRAW,
+        };
+      }
+
+      // ── LK: FINAŁ ─────────────────────────────────────────────────────────
+      case CompetitionType.CONF_FINAL: {
+        const hasCONFFinalScheduled = allFixtures.some(f =>
+          f.date.toDateString() === dateStr &&
+          f.leagueId === CompetitionType.CONF_FINAL &&
+          f.status === MatchStatus.SCHEDULED,
+        );
+        if (!hasCONFFinalScheduled) return null;
+        return {
+          slot,
+          kind: EventKind.MATCH_EURO,
+          participation: 'background',
+          targetView: ViewState.DASHBOARD,
+        };
+      }
 
       // ── SPARING ────────────────────────────────────────────────────────────
       // Sparingi nie mają fixtures w systemie — traktowane jako dni informacyjne (auto-advance)

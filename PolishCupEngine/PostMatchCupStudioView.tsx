@@ -5,14 +5,15 @@ import { ViewState, MatchEventType, CompetitionType } from '../types';
 import { KitSelectionService } from '../services/KitSelectionService';
 import { ChampionshipHistoryService } from '../data/championship_history';
 import { PostMatchCommentSelector } from './PostMatchCommentSelector';
+import PucharPolskiBg from '../Graphic/themes/PucharPolski.png';
 
-const GLASS_CARD = "bg-slate-950/40 backdrop-blur-3xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-[40px] relative overflow-hidden";
+const GLASS_CARD = "bg-slate-950/20 border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-[40px] relative overflow-hidden";
 const GLOSS_LAYER = "absolute inset-0 bg-gradient-to-br from-white/[0.05] via-transparent to-transparent pointer-events-none";
 
 export const PostMatchCupStudioView: React.FC = () => {
   console.log('🎬 PostMatchCupStudioView RENDERED');
   
-  const { lastMatchSummary, navigateTo, processBackgroundCupMatches, jumpToNextEvent, players, currentDate, addSupercupWinner } = useGame();
+  const { lastMatchSummary, navigateTo, processBackgroundCupMatches, advanceDay, players, currentDate, addSupercupWinner } = useGame();
   const savedMatchesRef = useRef<Set<string>>(new Set());
 
   if (!lastMatchSummary) {
@@ -137,7 +138,7 @@ export const PostMatchCupStudioView: React.FC = () => {
 
   const handleReturn = () => {
     if (isSuperCup) {
-       jumpToNextEvent();
+       advanceDay();
        navigateTo(ViewState.DASHBOARD);
     } else {
        processBackgroundCupMatches();
@@ -246,11 +247,13 @@ export const PostMatchCupStudioView: React.FC = () => {
       
       {/* 1. BACKGROUND ENGINE */}
       <div className="fixed inset-0 z-0">
-        <div 
-          className="absolute inset-0 bg-cover bg-center opacity-40 blur-[2px] scale-105" 
-          style={{ backgroundImage: `url('https://i.ibb.co/fdSSvHLz/stadion.jpg')` }} 
+        <img 
+          src={PucharPolskiBg} 
+          alt="" 
+          className="w-full h-full object-cover" 
+          style={{ filter: 'brightness(0.35)' }}
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/80 via-slate-950/20 to-slate-950" />
+        <div className="absolute inset-0 bg-slate-950/60" />
       </div>
 
       <div className="relative z-10 w-full max-w-[1600px] h-full flex flex-col gap-6 animate-fade-in">
