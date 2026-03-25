@@ -6,14 +6,16 @@ import {
 Coach, TrainingIntensity,
 PendingNegotiation, NegotiationStatus,
 HealthStatus,
-PlayerPosition, EuropeanStatus
+PlayerPosition, EuropeanStatus, NationalTeam
 } from '../types';
+import { NationalTeamService } from '../services/NationalTeamService';
 import { RAW_CHAMPIONS_LEAGUE_CLUBS, generateEuropeanClubId } from '../resources/static_db/clubs/ChampionsLeagueTeams';
 import { RAW_EUROPA_LEAGUE_CLUBS, generateELClubId } from '../resources/static_db/clubs/EuropeLeagueTeams';
 import { ELDrawService } from '../LECupEngine/ELDrawService';
 import { CONFDrawService } from '../LECupEngine/CONFDrawService';
 import { RAW_CONFERENCE_LEAGUE_CLUBS, generateCONFClubId } from '../resources/static_db/clubs/ConferenceLeagueTeams';
-import { STATIC_CLUBS, STATIC_LEAGUES, STATIC_CL_CLUBS, STATIC_EL_CLUBS, STATIC_CONF_CLUBS, START_DATE } from '../constants';
+import { CLUBS_SOUTH_AMERICA, generateSAClubId } from '../resources/static_db/clubs/SouthamericanTeams';
+import { STATIC_CLUBS, STATIC_LEAGUES, STATIC_CL_CLUBS, STATIC_EL_CLUBS, STATIC_CONF_CLUBS, STATIC_SA_CLUBS, START_DATE } from '../constants';
 import { SeasonTemplateGenerator } from '../services/SeasonTemplateGenerator';
 import { LeagueScheduleGenerator } from '../services/LeagueScheduleGenerator';
 import { CalendarEngine } from '../services/CalendarEngine';
@@ -153,6 +155,12 @@ finalizeFreeAgentContract: (mailId: string) => void;
  europeanStatus: Record<string, EuropeanStatus>;
   setEuropeanStatus: React.Dispatch<React.SetStateAction<Record<string, EuropeanStatus>>>;
   addFinanceLog: (clubId: string, description: string, amount: number, date?: Date, previousBalance?: number) => void;
+  nationalTeams: NationalTeam[];
+  setNationalTeams: React.Dispatch<React.SetStateAction<NationalTeam[]>>;
+  europeanViewTab: 'clubs' | 'nt';
+  setEuropeanViewTab: React.Dispatch<React.SetStateAction<'clubs' | 'nt'>>;
+  selectedNTId: string | null;
+  setSelectedNTId: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -162,7 +170,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [sessionSeed, setSessionSeed] = useState<number>(0);
   const [viewState, setViewState] = useState<ViewState>(ViewState.START_MENU);
   const [previousViewState, setPreviousViewState] = useState<ViewState | null>(null);
-  const [clubs, setClubs] = useState<Club[]>([...STATIC_CLUBS, ...STATIC_CL_CLUBS, ...STATIC_EL_CLUBS, ...STATIC_CONF_CLUBS]);
+  const [clubs, setClubs] = useState<Club[]>([...STATIC_CLUBS, ...STATIC_CL_CLUBS, ...STATIC_EL_CLUBS, ...STATIC_CONF_CLUBS, ...STATIC_SA_CLUBS]);
   const [leagues, setLeagues] = useState<League[]>(STATIC_LEAGUES);
   const [players, setPlayers] = useState<Record<string, Player[]>>({});
   const [lineups, setLineups] = useState<Record<string, Lineup>>({});
@@ -188,6 +196,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 const [activeIntensity, setActiveIntensity] = useState<TrainingIntensity>(TrainingIntensity.NORMAL);
  const [pendingNegotiations, setPendingNegotiations] = useState<PendingNegotiation[]>([]);
  const [europeanStatus, setEuropeanStatus] = useState<Record<string, EuropeanStatus>>({});
+  const [nationalTeams, setNationalTeams] = useState<NationalTeam[]>([]);
+  const [europeanViewTab, setEuropeanViewTab] = useState<'clubs' | 'nt'>('clubs');
+  const [selectedNTId, setSelectedNTId] = useState<string | null>(null);
   // Polish Cup & Persistent Events State
   const [cupParticipants, setCupParticipants] = useState<string[]>([]);
   const [activeCupDraw, setActiveCupDraw] = useState<{ id: string, label: string, date: Date, pairs: Fixture[] } | null>(null);
@@ -297,6 +308,13 @@ const getOrGenerateSquad = useCallback((clubId: string): Player[] => {
         return newSquad;
     }
 
+    const rawSA = CLUBS_SOUTH_AMERICA.find(c => generateSAClubId(c.name) === clubId);
+    if (rawSA) {
+        const newSquad = SquadGeneratorService.generateSouthAmericanSquad(clubId, rawSA.tier, rawSA.reputation, rawSA.country);
+        setPlayers(prev => ({ ...prev, [clubId]: newSquad }));
+        return newSquad;
+    }
+
     const newSquad = SquadGeneratorService.generateSquadForClub(clubId);
     setPlayers(prev => ({ ...prev, [clubId]: newSquad }));
     return newSquad;
@@ -324,7 +342,7 @@ const getOrGenerateSquad = useCallback((clubId: string): Player[] => {
     setSessionSeed(Math.floor(Math.random() * 1000000));
     const template = SeasonTemplateGenerator.generate(startYear);
     // -> tutaj wstaw kod
-    const coachData = CoachService.generateInitialCoaches([...STATIC_CLUBS, ...STATIC_CL_CLUBS, ...STATIC_EL_CLUBS, ...STATIC_CONF_CLUBS]);
+    const coachData = CoachService.generateInitialCoaches([...STATIC_CLUBS, ...STATIC_CL_CLUBS, ...STATIC_EL_CLUBS, ...STATIC_CONF_CLUBS, ...STATIC_SA_CLUBS]);
     setCoaches(coachData.coaches);
     setClubs(coachData.updatedClubs);
    
@@ -353,13 +371,59 @@ const getOrGenerateSquad = useCallback((clubId: string): Player[] => {
       const clubId = generateCONFClubId(club.name);
       europeanPlayers[clubId] = SquadGeneratorService.generateEuropeanSquad(clubId, club.tier, club.reputation, club.country);
     });
+    CLUBS_SOUTH_AMERICA.forEach(club => {
+      const clubId = generateSAClubId(club.name);
+      europeanPlayers[clubId] = SquadGeneratorService.generateSouthAmericanSquad(clubId, club.tier, club.reputation, club.country);
+    });
     setPlayers(prev => ({ ...prev, ...europeanPlayers }));
+
+    // ── Inicjalizacja reprezentacji narodowych ─────────────────────────────────
+    const allNationalTeams = NationalTeamService.initializeNationalTeams();
+    const ntCoachList = CoachService.generateNationalTeamCoaches();
+    const { updatedTeams: teamsWithCoaches, updatedCoaches: assignedNtCoaches } =
+      NationalTeamService.assignCoachesToNationalTeams(allNationalTeams, ntCoachList);
+    const polishPlayers: Record<string, Player[]> = {};
+    STATIC_CLUBS.forEach(club => {
+      polishPlayers[club.id] = SquadGeneratorService.generateSquadForClub(club.id);
+    });
+    setPlayers(prev => ({ ...prev, ...polishPlayers }));
+
+    const allPlayersForNT: Record<string, Player[]> = {
+      'FREE_AGENTS': initialFreeAgents,
+      ...europeanPlayers,
+      ...polishPlayers
+    };
+    const ntSquadResult = NationalTeamService.generateAllSquads(
+      teamsWithCoaches, assignedNtCoaches, allPlayersForNT
+    );
+    if (ntSquadResult.newPlayers.length > 0) {
+      setPlayers(prev => ({
+        ...prev,
+        'FREE_AGENTS': [...(prev['FREE_AGENTS'] || []), ...ntSquadResult.newPlayers]
+      }));
+    }
+    if (ntSquadResult.playerUpdates.length > 0) {
+      const updateMap: Record<string, string> = {};
+      ntSquadResult.playerUpdates.forEach(u => { updateMap[u.id] = u.assignedNationalTeamId; });
+      setPlayers(prev => {
+        const updated: Record<string, Player[]> = {};
+        for (const [clubId, squad] of Object.entries(prev)) {
+          updated[clubId] = squad.map(p =>
+            updateMap[p.id] ? { ...p, assignedNationalTeamId: updateMap[p.id] } : p
+          );
+        }
+        return updated;
+      });
+    }
+    setCoaches(prev => ({ ...prev, ...assignedNtCoaches }));
+    setNationalTeams(ntSquadResult.updatedTeams);
+    // ── Koniec inicjalizacji reprezentacji ────────────────────────────────────
 
     setMessages([]);
     setProcessedDrawIds([]);
     const initialSuperCup = SuperCupService.generateFixture(2025, STATIC_CLUBS);
     setGlobalFixtures([initialSuperCup]);
-    setClubs([...STATIC_CLUBS.map(c => ({ ...c, isInPolishCup: false })), ...STATIC_CL_CLUBS, ...STATIC_EL_CLUBS, ...STATIC_CONF_CLUBS]);
+    setClubs([...STATIC_CLUBS.map(c => ({ ...c, isInPolishCup: false })), ...STATIC_CL_CLUBS, ...STATIC_EL_CLUBS, ...STATIC_CONF_CLUBS, ...STATIC_SA_CLUBS]);
     navigateTo(ViewState.MANAGER_CREATION);
   };
 
@@ -992,6 +1056,33 @@ setMessages([welcomeMail, fanMail]);
       }
     }
     // --- END OF EMERGENCY GK PROTOCOL ---
+
+    // ── Dzienny przegląd kontuzji w reprezentacjach narodowych ────────────────
+    if (nationalTeams.length > 0) {
+      const ntReview = NationalTeamService.reviewDailyInjuries(nationalTeams, players, dateToProcess);
+      const anyChanged = ntReview.updatedTeams.some((t, i) => t !== nationalTeams[i]);
+      if (anyChanged) setNationalTeams(ntReview.updatedTeams);
+      if (ntReview.newPlayers.length > 0) {
+        setPlayers(prev => ({
+          ...prev,
+          'FREE_AGENTS': [...(prev['FREE_AGENTS'] || []), ...ntReview.newPlayers]
+        }));
+      }
+      if (ntReview.playerUpdates.length > 0) {
+        const updateMap: Record<string, string> = {};
+        ntReview.playerUpdates.forEach(u => { updateMap[u.id] = u.assignedNationalTeamId; });
+        setPlayers(prev => {
+          const updated: Record<string, Player[]> = {};
+          for (const [clubId, squad] of Object.entries(prev)) {
+            updated[clubId] = squad.map(p =>
+              updateMap[p.id] ? { ...p, assignedNationalTeamId: updateMap[p.id] } : p
+            );
+          }
+          return updated;
+        });
+      }
+    }
+    // ── Koniec przeglądu kontuzji NT ─────────────────────────────────────────
 
         // ── Email o finale Pucharu Polski (wysyłany dzień po finale) ─────────────
     if (userTeamId) {
@@ -3490,7 +3581,9 @@ const finalizeFreeAgentContract = useCallback((mailId: string) => {
       setPlayers, setClubs, setLastMatchSummary, addRoundResults, applySimulationResult, setActiveMatchState, 
       setMessages, pendingNegotiations, setPendingNegotiations, finalizeFreeAgentContract, europeanStatus, setEuropeanStatus,
             markMessageRead, deleteMessage, setActiveTrainingId, confirmCupDraw, confirmCLDraw, confirmELDraw, confirmELR2QDraw, confirmCONFDraw, confirmCONFR2QDraw, activeGroupDraw,
-    confirmCLGroupDraw, confirmELGroupDraw, confirmELR16Draw, confirmCLQFDraw, confirmCLSFDraw, confirmCLR16Draw, confirmELQFDraw, confirmELSFDraw, confirmELFinalDraw, confirmCONFGroupDraw, confirmCONFR16Draw, confirmCONFQFDraw, confirmCONFSFDraw, confirmCONFFinalDraw, confirmSeasonEnd, clGroups, activeELGroupDraw, elGroups, activeConfGroupDraw, confGroups, processBackgroundCupMatches, processCLMatchDay, sessionSeed, updatePlayer, toggleTransferList, addFinanceLog, supercupWinners, addSupercupWinner, elHistoryInitialRound, setElHistoryInitialRound
+    confirmCLGroupDraw, confirmELGroupDraw, confirmELR16Draw, confirmCLQFDraw, confirmCLSFDraw, confirmCLR16Draw, confirmELQFDraw, confirmELSFDraw, confirmELFinalDraw, confirmCONFGroupDraw, confirmCONFR16Draw, confirmCONFQFDraw, confirmCONFSFDraw, confirmCONFFinalDraw, confirmSeasonEnd, clGroups, activeELGroupDraw, elGroups, activeConfGroupDraw, confGroups, processBackgroundCupMatches, processCLMatchDay, sessionSeed, updatePlayer, toggleTransferList, addFinanceLog, supercupWinners, addSupercupWinner, elHistoryInitialRound, setElHistoryInitialRound,
+    nationalTeams, setNationalTeams,
+    europeanViewTab, setEuropeanViewTab, selectedNTId, setSelectedNTId
     }}>
       {children}
     </GameContext.Provider>

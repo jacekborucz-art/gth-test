@@ -111,6 +111,8 @@ export interface Coach {
   attributes: CoachAttributes;
   history: CoachHistoryEntry[];
   currentClubId: string | null;
+  currentNationalTeamId?: string | null;
+  isNationalTeamCoach?: boolean;
   hiredDate: string; // ISO Date String
    blacklist: Record<string, number>;
 }
@@ -170,7 +172,8 @@ export enum Region {
   ISRAELI = 'ISRAELI',
   GREEK = 'GREEK',
   AZERBAIJANI = 'AZERBAIJANI',
-  KAZAKH = 'KAZAKH'
+  KAZAKH = 'KAZAKH',
+  SOUTH_AMERICAN = 'SOUTH_AMERICAN'
 }
 
 export enum PlayerPosition {
@@ -398,6 +401,7 @@ export interface Player {
   isNegotiationPermanentBlocked: boolean; // Czy zawodnik obraził się na amen
   transferLockoutUntil: string | null;
   freeAgentLockoutUntil: string | null;
+  assignedNationalTeamId?: string | null;
   /** Lista ID klubów aktualnie zainteresowanych pozyskaniem tego zawodnika (aktualizowana ~1x/miesiąc przez AI) */
   interestedClubs?: string[];
 }
@@ -467,6 +471,10 @@ export interface NationalTeam {
   stadiumName: string;
   stadiumCapacity: number;
   reputation: number;
+  region: Region;
+  coachId: string | null;
+  squadPlayerIds: string[];
+  tacticId: string | null;
 }
 export interface League {
   id: string;
