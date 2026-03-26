@@ -1419,7 +1419,7 @@ setMessages([welcomeMail, fanMail]);
           );
           if (!alreadyPlayedELQF) {
             if (isAutoJumping) { setTargetJumpTime(null); navigateTo(ViewState.DASHBOARD); skipDayAdvance = true; break; }
-            navigateTo(ViewState.PRE_MATCH_CL_STUDIO);
+            navigateTo(ViewState.PRE_MATCH_EL_STUDIO);
             skipDayAdvance = true; break;
           }
           break;
@@ -1443,7 +1443,7 @@ setMessages([welcomeMail, fanMail]);
           );
           if (!alreadyPlayedELSF) {
             if (isAutoJumping) { setTargetJumpTime(null); navigateTo(ViewState.DASHBOARD); skipDayAdvance = true; break; }
-            navigateTo(ViewState.PRE_MATCH_CL_STUDIO);
+            navigateTo(ViewState.PRE_MATCH_EL_STUDIO);
             skipDayAdvance = true; break;
           }
           if (slot.competition === CompetitionType.EL_SF_RETURN) {
@@ -1497,7 +1497,7 @@ setMessages([welcomeMail, fanMail]);
           const alreadyPlayedELFinal = elFinalFixture.status === MatchStatus.FINISHED;
           if (!alreadyPlayedELFinal) {
             if (isAutoJumping) { setTargetJumpTime(null); navigateTo(ViewState.DASHBOARD); skipDayAdvance = true; break; }
-            navigateTo(ViewState.PRE_MATCH_CL_STUDIO);
+            navigateTo(ViewState.PRE_MATCH_EL_STUDIO);
             skipDayAdvance = true; break;
           }
           if (userTeamId) {
@@ -1762,6 +1762,19 @@ setMessages([welcomeMail, fanMail]);
         case CompetitionType.CL_R2Q_RETURN: {
           if (isAutoJumping) { setTargetJumpTime(null); navigateTo(ViewState.DASHBOARD); skipDayAdvance = true; break; }
           navigateTo(ViewState.PRE_MATCH_CL_STUDIO);
+          skipDayAdvance = true; break;
+        }
+
+        // ── LE: Mecze (gracz uczestniczy) ───────────────────────────────────
+        case CompetitionType.EL_R1Q:
+        case CompetitionType.EL_R1Q_RETURN:
+        case CompetitionType.EL_R2Q:
+        case CompetitionType.EL_R2Q_RETURN:
+        case CompetitionType.EL_GROUP_STAGE:
+        case CompetitionType.EL_R16:
+        case CompetitionType.EL_R16_RETURN: {
+          if (isAutoJumping) { setTargetJumpTime(null); navigateTo(ViewState.DASHBOARD); skipDayAdvance = true; break; }
+          navigateTo(ViewState.PRE_MATCH_EL_STUDIO);
           skipDayAdvance = true; break;
         }
 
@@ -2269,7 +2282,8 @@ const finalResult: SimulationOutput = {
           f.leagueId.startsWith('L_PL_') ||
           f.leagueId === 'POLISH_CUP' ||
           f.leagueId === 'SUPER_CUP' ||
-          (f.leagueId.startsWith('CL_') && !f.leagueId.endsWith('_DRAW'))
+          (f.leagueId.startsWith('CL_') && !f.leagueId.endsWith('_DRAW')) ||
+          (f.leagueId.startsWith('EL_') && !f.leagueId.endsWith('_DRAW'))
         ))
       );
 
@@ -2299,6 +2313,18 @@ const finalResult: SimulationOutput = {
               'CL_SF': 'Liga Mistrzów - Półfinał',
               'CL_SF_RETURN': 'LM - Półfinał Rewanż',
               'CL_FINAL': 'Liga Mistrzów - Finał',
+              'EL_R1Q': 'LE - Kwalifikacje R1',
+              'EL_R1Q_RETURN': 'LE - Kwalifikacje R1 Rewanż',
+              'EL_R2Q': 'LE - Kwalifikacje R2',
+              'EL_R2Q_RETURN': 'LE - Kwalifikacje R2 Rewanż',
+              'EL_GROUP_STAGE': 'Liga Europy - Faza Grupowa',
+              'EL_R16': 'Liga Europy - 1/8 Finału',
+              'EL_R16_RETURN': 'LE - 1/8 Finału Rewanż',
+              'EL_QF': 'Liga Europy - Ćwierćfinał',
+              'EL_QF_RETURN': 'LE - Ćwierćfinał Rewanż',
+              'EL_SF': 'Liga Europy - Półfinał',
+              'EL_SF_RETURN': 'LE - Półfinał Rewanż',
+              'EL_FINAL': 'Liga Europy - Finał',
             };
             const leagueName = tomorrowFixture.leagueId === 'L_PL_1' ? 'Ekstraklasa'
               : tomorrowFixture.leagueId === 'L_PL_2' ? '1. Liga'
