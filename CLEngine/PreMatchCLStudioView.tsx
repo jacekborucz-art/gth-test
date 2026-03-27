@@ -4,7 +4,7 @@ import { ViewState, CompetitionType, MatchStatus } from '../types';
 import ligaMistrzowBg from '../Graphic/themes/liga_mistrzow.png';
 import ligaEuropaBg from '../Graphic/themes/LigaEuropa.png';
 
-const GLASS_CARD = "bg-slate-950/40 backdrop-blur-3xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-[40px] relative overflow-hidden";
+const GLASS_CARD = "bg-slate-950/40 border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-[40px] relative overflow-hidden";
 const GLOSS_LAYER = "absolute inset-0 bg-gradient-to-br from-white/[0.05] via-transparent to-transparent pointer-events-none";
 
 export const PreMatchCLStudioView: React.FC = () => {
@@ -21,6 +21,7 @@ export const PreMatchCLStudioView: React.FC = () => {
        f.leagueId === CompetitionType.CL_R16 || f.leagueId === CompetitionType.CL_R16_RETURN ||
        f.leagueId === CompetitionType.CL_QF  || f.leagueId === CompetitionType.CL_QF_RETURN  ||
        f.leagueId === CompetitionType.CL_SF  || f.leagueId === CompetitionType.CL_SF_RETURN  ||
+       f.leagueId === CompetitionType.CL_FINAL ||
        f.leagueId === CompetitionType.EL_QF  || f.leagueId === CompetitionType.EL_QF_RETURN  ||
        f.leagueId === CompetitionType.EL_SF  || f.leagueId === CompetitionType.EL_SF_RETURN  ||
        f.leagueId === CompetitionType.EL_FINAL)
@@ -75,6 +76,9 @@ const isR16 = todayPairs.length > 0 &&
   const isELFinal = isELDay &&
     todayPairs[0].leagueId === CompetitionType.EL_FINAL;
 
+  const isCLFinal = todayPairs.length > 0 &&
+    todayPairs[0].leagueId === CompetitionType.CL_FINAL;
+
   const handleSimulate = () => {
     processCLMatchDay();
     if (isELFinal) {
@@ -121,6 +125,8 @@ const isR16 = todayPairs.length > 0 &&
                     ? (isReturn ? 'LE: 1/2 Finału — Rewanż' : `LE: 1/2 Finału — 1. Mecz · ${todayPairs.length} par`)
                     : isELQF
                       ? (isReturn ? 'LE: 1/4 Finału — Rewanż' : `LE: 1/4 Finału — 1. Mecz · ${todayPairs.length} par`)
+                      : isCLFinal
+                      ? 'Finał Ligi Mistrzów'
                       : isGroupStage
                         ? `Faza Grupowa LM · ${todayPairs.length} Meczów`
                         : isSF
