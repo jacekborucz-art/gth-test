@@ -5,6 +5,7 @@ import { CZSK_MALE_FIRSTNAMES, CZSK_MALE_LASTNAMES } from '../resources/static_d
 import { SSA_MALE_FIRSTNAMES, SSA_MALE_LASTNAMES } from '../resources/static_db/names/ssa_data';
 import { IBERIA_MALE_FIRSTNAMES, IBERIA_MALE_LASTNAMES } from '../resources/static_db/names/iberia_data';
 import { SCANDINAVIA_MALE_FIRSTNAMES, SCANDINAVIA_MALE_LASTNAMES } from '../resources/static_db/names/scandinavia_data';
+import { SWEDISH_MALE_FIRSTNAMES, SWEDISH_MALE_LASTNAMES } from '../resources/static_db/names/swedish_data';
 import { EXUSSR_MALE_FIRSTNAMES, EXUSSR_MALE_LASTNAMES } from '../resources/static_db/names/exussr_data';
 import { ES_MALE_FIRSTNAMES, ES_MALE_LASTNAMES } from '../resources/static_db/names/es_data';
 import { EN_MALE_FIRSTNAMES, EN_MALE_LASTNAMES } from '../resources/static_db/names/en_data';
@@ -31,6 +32,7 @@ import { GREEK_MALE_FIRSTNAMES, GREEK_MALE_LASTNAMES } from '../resources/static
 import { AZERBAIJANI_MALE_FIRSTNAMES, AZERBAIJANI_MALE_LASTNAMES } from '../resources/static_db/names/azerbaijani_data';
 import { KAZAKH_MALE_FIRSTNAMES, KAZAKH_MALE_LASTNAMES } from '../resources/static_db/names/kazakh_data';
 import { SOUTH_AMERICAN_MALE_FIRSTNAMES, SOUTH_AMERICAN_MALE_LASTNAMES } from '../resources/static_db/names/southamerican_data';
+import { MEXICAN_MALE_FIRSTNAMES, MEXICAN_MALE_LASTNAMES } from '../resources/static_db/names/mexican_data';
 interface NamePair {
   firstName: string;
   lastName: string;
@@ -67,6 +69,16 @@ export const NameGeneratorService = {
         return {
           firstName: getRandomElement(IBERIA_MALE_FIRSTNAMES),
           lastName: getRandomElement(IBERIA_MALE_LASTNAMES)
+        };
+      case Region.MEXICO:
+        return {
+          firstName: getRandomElement(MEXICAN_MALE_FIRSTNAMES),
+          lastName: getRandomElement(MEXICAN_MALE_LASTNAMES)
+        };
+      case Region.SWEDEN:
+        return {
+          firstName: getRandomElement(SWEDISH_MALE_FIRSTNAMES),
+          lastName: getRandomElement(SWEDISH_MALE_LASTNAMES)
         };
       case Region.SCANDINAVIA:
         return {

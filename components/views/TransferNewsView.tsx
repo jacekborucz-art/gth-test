@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useGame } from '../../context/GameContext';
-import { Player, ViewState } from '../../types';
-import negocjacjeBg from '../../graphic/themes/negocjacje.png';
+import { IncomingOfferStatus, IncomingTransferOffer, Player, ViewState } from '../../types';
+import negocjacjeBg from '../../Graphic/themes/negocjacje.png';
 
 const LEAGUES = [
   { id: 'ALL', label: 'WSZYSTKIE' },
@@ -43,6 +43,13 @@ const leagueTag = (leagueId?: string) => {
   if (leagueId === 'L_PL_2') return 'I Liga';
   if (leagueId === 'L_PL_3') return 'II Liga';
   if (leagueId === 'L_PL_4') return 'III Liga';
+  if (leagueId === 'L_CL') return 'Liga Mistrzow';
+  if (leagueId === 'L_EL') return 'Liga Europy';
+  if (leagueId === 'L_CONF') return 'Liga Konferencji';
+  if (leagueId === 'L_SA') return 'Ameryka Poludniowa';
+  if (leagueId === 'L_ASIA') return 'Azja';
+  if (leagueId === 'L_AFRICA') return 'Afryka';
+  if (leagueId === 'L_NA') return 'Ameryka Polnocna';
   return leagueId;
 };
 
@@ -67,12 +74,86 @@ const formatValue = (value?: number) => {
   return value.toLocaleString('pl-PL');
 };
 
+const INCOMING_OFFER_PRIORITY: Record<IncomingOfferStatus, number> = {
+  [IncomingOfferStatus.AWAITING_CONFIRMATION]: 7,
+  [IncomingOfferStatus.AI_COUNTERED]: 6,
+  [IncomingOfferStatus.COUNTER_PENDING_AI]: 5,
+  [IncomingOfferStatus.NEGOTIATION_IN_PROGRESS]: 4,
+  [IncomingOfferStatus.REMINDER_SENT]: 3,
+  [IncomingOfferStatus.EMAIL_SENT]: 2,
+  [IncomingOfferStatus.COMPLETED]: 1,
+  [IncomingOfferStatus.PLAYER_REFUSED]: 1,
+  [IncomingOfferStatus.REJECTED_BY_MANAGER]: 1,
+  [IncomingOfferStatus.REJECTED_AT_CONFIRM]: 1,
+  [IncomingOfferStatus.EXPIRED]: 1,
+};
+
+const pickMoreRelevantIncomingOffer = (
+  current: IncomingTransferOffer,
+  challenger: IncomingTransferOffer
+): IncomingTransferOffer => {
+  const currentPriority = INCOMING_OFFER_PRIORITY[current.status] ?? 0;
+  const challengerPriority = INCOMING_OFFER_PRIORITY[challenger.status] ?? 0;
+  if (challengerPriority !== currentPriority) {
+    return challengerPriority > currentPriority ? challenger : current;
+  }
+
+  if (challenger.negotiationRound !== current.negotiationRound) {
+    return challenger.negotiationRound > current.negotiationRound ? challenger : current;
+  }
+
+  const currentTime = new Date(current.createdAt).getTime();
+  const challengerTime = new Date(challenger.createdAt).getTime();
+  if (challengerTime !== currentTime) {
+    return challengerTime > currentTime ? challenger : current;
+  }
+
+  const currentDisplayedFee = current.status === IncomingOfferStatus.AI_COUNTERED
+    ? (current.aiCounterFee ?? current.fee)
+    : current.fee;
+  const challengerDisplayedFee = challenger.status === IncomingOfferStatus.AI_COUNTERED
+    ? (challenger.aiCounterFee ?? challenger.fee)
+    : challenger.fee;
+  if (challengerDisplayedFee !== currentDisplayedFee) {
+    return challengerDisplayedFee > currentDisplayedFee ? challenger : current;
+  }
+
+  return challenger.id > current.id ? challenger : current;
+};
+
+const mergeIncomingOffersByPair = (offers: IncomingTransferOffer[]): IncomingTransferOffer[] => {
+  const merged = new Map<string, IncomingTransferOffer>();
+
+  offers.forEach(offer => {
+    const key = `${offer.playerId}::${offer.buyerClubId}`;
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, offer);
+      return;
+    }
+
+    merged.set(key, pickMoreRelevantIncomingOffer(existing, offer));
+  });
+
+  return [...merged.values()];
+};
+
 export const TransferNewsView: React.FC = () => {
-  const { players, clubs, currentDate, navigateTo, viewPlayerDetails } = useGame();
+  const {
+    players,
+    clubs,
+    currentDate,
+    navigateTo,
+    viewPlayerDetails,
+    incomingOffers,
+    navigateToIncomingOffer,
+    transferNewsActiveTab,
+    setTransferNewsActiveTab,
+  } = useGame();
 
   const [leagueFilter, setLeagueFilter] = useState('ALL');
-  const [activeTab, setActiveTab] = useState<'scouting' | 'released' | 'activity' | 'completed'>('activity');
   const [scoutingMarketFilter, setScoutingMarketFilter] = useState<'POLAND' | 'REST_WORLD'>('POLAND');
+  const activeTab = transferNewsActiveTab;
 
   const clubMap = useMemo(() => new Map(clubs.map(club => [club.id, club])), [clubs]);
   const allPlayers = useMemo(() => Object.values(players).flat(), [players]);
@@ -274,6 +355,26 @@ export const TransferNewsView: React.FC = () => {
 
   const activityCount = trsf.length + freeAgentNeg.length;
 
+  const activeIncomingOffers = useMemo(() => {
+    return mergeIncomingOffersByPair(incomingOffers.filter(o =>
+      o.status !== 'COMPLETED' &&
+      o.status !== 'REJECTED_BY_MANAGER' &&
+      o.status !== 'REJECTED_AT_CONFIRM' &&
+      o.status !== 'PLAYER_REFUSED' &&
+      o.status !== 'EXPIRED'
+    ));
+  }, [incomingOffers]);
+
+  const closedIncomingOffers = useMemo(() => {
+    return mergeIncomingOffersByPair(incomingOffers.filter(o =>
+      o.status === 'COMPLETED' ||
+      o.status === 'PLAYER_REFUSED' ||
+      o.status === 'REJECTED_BY_MANAGER' ||
+      o.status === 'REJECTED_AT_CONFIRM' ||
+      o.status === 'EXPIRED'
+    ));
+  }, [incomingOffers]);
+
   return (
     <div
       className="min-h-screen bg-slate-950 text-slate-50 flex flex-col p-4 gap-4"
@@ -325,7 +426,7 @@ export const TransferNewsView: React.FC = () => {
 
         <div className="flex gap-2 shrink-0 flex-wrap justify-end">
           <button
-            onClick={() => setActiveTab('scouting')}
+            onClick={() => setTransferNewsActiveTab('scouting')}
             className={`px-6 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
               activeTab === 'scouting'
                 ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
@@ -335,7 +436,7 @@ export const TransferNewsView: React.FC = () => {
             Skauting ({scoutingWatch.length})
           </button>
           <button
-            onClick={() => setActiveTab('released')}
+            onClick={() => setTransferNewsActiveTab('released')}
             className={`px-6 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
               activeTab === 'released'
                 ? 'bg-amber-500/20 border-amber-400/50 text-amber-300'
@@ -345,7 +446,7 @@ export const TransferNewsView: React.FC = () => {
             Zwolnienia ({releasedPlayers.length})
           </button>
           <button
-            onClick={() => setActiveTab('activity')}
+            onClick={() => setTransferNewsActiveTab('activity')}
             className={`px-6 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
               activeTab === 'activity'
                 ? 'bg-blue-500/20 border-blue-400/50 text-blue-300'
@@ -355,7 +456,7 @@ export const TransferNewsView: React.FC = () => {
             📡 NEGOCJACJE ({activityCount})
           </button>
           <button
-            onClick={() => setActiveTab('completed')}
+            onClick={() => setTransferNewsActiveTab('completed')}
             className={`px-6 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
               activeTab === 'completed'
                 ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
@@ -363,6 +464,16 @@ export const TransferNewsView: React.FC = () => {
             }`}
           >
             ✅ Sfinalizowane ({completed.length})
+          </button>
+          <button
+            onClick={() => setTransferNewsActiveTab('incoming')}
+            className={`px-6 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+              activeTab === 'incoming'
+                ? 'bg-amber-500/20 border-amber-400/50 text-amber-300'
+                : 'bg-white/[0.03] border-white/10 text-slate-400 hover:bg-white/[0.07]'
+            }`}
+          >
+            📨 OFERTY ZA MOICH ({activeIncomingOffers.length})
           </button>
         </div>
       </div>
@@ -648,6 +759,100 @@ export const TransferNewsView: React.FC = () => {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'incoming' && (
+          <div className="space-y-3">
+            {activeIncomingOffers.length === 0 && closedIncomingOffers.length === 0 && (
+              <div className="text-center py-16 text-slate-500 text-sm font-black uppercase tracking-widest">
+                Brak aktywnych ofert za Twoich zawodników
+              </div>
+            )}
+            {activeIncomingOffers.map(offer => {
+              let player: Player | undefined;
+              for (const cId in players) {
+                player = players[cId]?.find(p => p.id === offer.playerId);
+                if (player) break;
+              }
+              const buyerClub = clubs.find(c => c.id === offer.buyerClubId);
+              if (!player || !buyerClub) return null;
+              const displayedFee = offer.status === 'AI_COUNTERED'
+                ? (offer.aiCounterFee ?? offer.fee)
+                : offer.fee;
+
+              const statusLabels: Record<string, { label: string; color: string }> = {
+                EMAIL_SENT: { label: 'Oczekuje na odpowiedź', color: 'text-amber-300' },
+                REMINDER_SENT: { label: 'Przypomnienie wysłane', color: 'text-orange-300' },
+                COUNTER_PENDING_AI: { label: 'Rozpatrywanie oferty', color: 'text-blue-300' },
+                AI_COUNTERED: { label: 'Przyszła odpowiedz, wymagana akcja', color: 'text-amber-400' },
+                NEGOTIATION_IN_PROGRESS: { label: 'Negocjacje z zawodnikiem w toku', color: 'text-blue-400' },
+                AWAITING_CONFIRMATION: { label: 'Wymagane zatwierdzenie', color: 'text-emerald-400' },
+              };
+              const st = statusLabels[offer.status] ?? { label: offer.status, color: 'text-slate-400' };
+              const needsAction =
+                offer.status === 'EMAIL_SENT' ||
+                offer.status === 'REMINDER_SENT' ||
+                offer.status === 'AI_COUNTERED' ||
+                offer.status === 'AWAITING_CONFIRMATION';
+
+              return (
+                <div
+                  key={offer.id}
+                  className="bg-white/[0.03] border border-white/10 rounded-[20px] p-5 flex items-center justify-between gap-4"
+                >
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border ${
+                      needsAction ? 'border-amber-500/40 bg-amber-500/10 text-amber-300' : 'border-white/10 bg-white/5 text-slate-400'
+                    }`}>
+                      {offer.aiUrgency === 3 ? '🔥 PILNA' : offer.aiUrgency === 2 ? 'NORMALNA' : 'NISKA'}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-black text-white truncate">
+                        {player.firstName} {player.lastName}
+                        <span className="ml-2 text-[10px] text-slate-400 font-normal">{player.position} · {player.overallRating} OVR</span>
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5 truncate">
+                        {buyerClub.name} oferuje <span className="text-amber-300 font-black">{displayedFee.toLocaleString('pl-PL')} PLN</span>
+                        {offer.boardPressure && <span className="ml-2 text-red-400 font-black">· zarząd naciska</span>}
+                      </p>
+                      <p className={`text-[9px] font-black uppercase tracking-widest mt-1 ${st.color}`}>{st.label}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => navigateToIncomingOffer(offer.id)}
+                    className="shrink-0 px-5 py-2 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-black uppercase tracking-widest text-[9px] hover:bg-amber-500/30 transition-all"
+                  >
+                    Przejdź
+                  </button>
+                </div>
+              );
+            })}
+            {closedIncomingOffers.slice(0, 10).map(offer => {
+              let player: Player | undefined;
+              for (const cId in players) {
+                player = players[cId]?.find(p => p.id === offer.playerId);
+                if (player) break;
+              }
+              const buyerClub = clubs.find(c => c.id === offer.buyerClubId);
+              if (!player || !buyerClub) return null;
+              const closedLabels: Record<string, string> = {
+                COMPLETED: '✅ Transfer sfinalizowany',
+                PLAYER_REFUSED: '❌ Zawodnik odmówił',
+                REJECTED_BY_MANAGER: '🚫 Odrzucona przez Ciebie',
+                REJECTED_AT_CONFIRM: '🚫 Odrzucona przy zatwierdzeniu',
+                EXPIRED: '⌛ Wygasła',
+              };
+              return (
+                <div key={offer.id} className="bg-white/[0.02] border border-white/5 rounded-[16px] px-5 py-3 flex items-center justify-between gap-4 opacity-50">
+                  <div>
+                    <p className="text-xs font-black text-slate-300">{player.firstName} {player.lastName} ← {buyerClub.name}</p>
+                    <p className="text-[9px] text-slate-500 mt-0.5">{closedLabels[offer.status] ?? offer.status}</p>
+                  </div>
+                  <p className="text-[10px] font-black text-slate-500">{offer.fee.toLocaleString('pl-PL')} PLN</p>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
