@@ -224,16 +224,16 @@ export const SquadView: React.FC = () => {
               )}
               {hasPendingTransfer && (
                 <span
-                  title={`Transfer uzgodniony z ${pendingTransferClub?.name ?? player.transferPendingClubId}${player.transferReportDate ? `\nData przejscia: ${new Date(player.transferReportDate).toLocaleDateString('pl-PL')}` : ''}`}
+                  title={`Transfer do ${pendingTransferClub?.name ?? player.transferPendingClubId}${player.transferReportDate ? `\nData przejscia: ${new Date(player.transferReportDate).toLocaleDateString('pl-PL')}` : ''}`}
                   className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-[8px] font-black rounded border border-emerald-500/30 shadow-sm shrink-0 leading-none cursor-help"
                 >
                   TRS
                 </span>
               )}
               {/* Badge zainteresowania transferowego — pojawia się gdy ≥1 klub AI obserwuje zawodnika */}
-              {player.interestedClubs && player.interestedClubs.length > 0 && (
+              {player.interestedClubs && player.interestedClubs.filter(id => id !== player.clubId).length > 0 && (
                 <span
-                  title={`Zainteresowane kluby:\n${player.interestedClubs.map(id => clubs.find(c => c.id === id)?.name ?? id).join('\n')}`}
+                  title={`Zainteresowane kluby:\n${player.interestedClubs.filter(id => id !== player.clubId).map(id => clubs.find(c => c.id === id)?.name ?? id).join('\n')}`}
                   className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-[8px] font-black rounded border border-blue-500/30 shadow-sm shrink-0 leading-none cursor-help"
                 >
                   INT
