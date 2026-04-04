@@ -77,6 +77,13 @@ import { ELQFDrawView } from './components/views/ELQFDrawView';
 import { ELSFDrawView } from './components/views/ELSFDrawView';
 import { ELFinalDrawView } from './components/views/ELFinalDrawView';
 import { GameNotification } from './components/ui/GameNotification';
+import { PlayoffDrawView } from './components/views/PlayoffDrawView';
+import { RelegationPlayoffMatch1View } from './components/views/RelegationPlayoffMatch1View';
+import { RelegationPlayoffMatch2View } from './components/views/RelegationPlayoffMatch2View';
+import { PromotionPlayoffSemiView } from './components/views/PromotionPlayoffSemiView';
+import { PromotionPlayoffFinalView } from './components/views/PromotionPlayoffFinalView';
+import { PreMatchPlayoffStudioView } from './PlayoffEngine/PreMatchPlayoffStudioView';
+import { PostMatchPlayoffStudioView } from './PlayoffEngine/PostMatchPlayoffStudioView';
 
 // Internal component to handle view switching
 const AppContent: React.FC = () => {
@@ -157,6 +164,24 @@ case ViewState.POST_MATCH_CONF_STUDIO:
 
 case ViewState.NATIONAL_TEAM_RESULTS:
   return <NationalTeamResultsView />;
+case ViewState.PLAYOFF_DRAW:
+  return <PlayoffDrawView />;
+// ── BARAŻE O UTRZYMANIE ─────────────────────────────────────────────────
+case ViewState.RELEGATION_PLAYOFF_MATCH_1:
+  return <RelegationPlayoffMatch1View />;
+case ViewState.RELEGATION_PLAYOFF_MATCH_2:
+  return <RelegationPlayoffMatch2View />;
+case ViewState.PROMOTION_PLAYOFF_SEMI_VIEW:
+  return <PromotionPlayoffSemiView />;
+case ViewState.PROMOTION_PLAYOFF_FINAL_VIEW:
+  return <PromotionPlayoffFinalView />;
+// ── BARAŻE — INTERAKTYWNY MECZ GRACZA ───────────────────────────────────
+case ViewState.PRE_MATCH_PLAYOFF_STUDIO:
+  return <PreMatchPlayoffStudioView />;
+case ViewState.MATCH_LIVE_PLAYOFF:
+  return <MatchLiveViewPolishCupSimulation />;
+case ViewState.POST_MATCH_PLAYOFF_STUDIO:
+  return <PostMatchPlayoffStudioView />;
 
   case ViewState.PRE_MATCH_CL_FINAL:
   return <PreMatchCLFinalView />;

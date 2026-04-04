@@ -90,6 +90,110 @@ export enum ViewState {
   POST_MATCH_CONF_STUDIO = 'POST_MATCH_CONF_STUDIO',
   // Wyniki meczów reprezentacji (wszystkie mecze grupy danego dnia)
   NATIONAL_TEAM_RESULTS = 'NATIONAL_TEAM_RESULTS',
+  PLAYOFF_DRAW = 'PLAYOFF_DRAW',
+  PROMOTION_PLAYOFF_SEMI_VIEW = 'PROMOTION_PLAYOFF_SEMI_VIEW',
+  PROMOTION_PLAYOFF_FINAL_VIEW = 'PROMOTION_PLAYOFF_FINAL_VIEW',
+  // ── BARAŻE O UTRZYMANIE ─────────────────────────────────────────────────
+  RELEGATION_PLAYOFF_MATCH_1 = 'RELEGATION_PLAYOFF_MATCH_1', // 26 maja — widok wyników 1. meczów
+  RELEGATION_PLAYOFF_MATCH_2 = 'RELEGATION_PLAYOFF_MATCH_2', // 29 maja — widok wyników rewanży + rozstrzygnięcie
+  // ── BARAŻE — INTERAKTYWNY MECZ GRACZA ───────────────────────────────────
+  PRE_MATCH_PLAYOFF_STUDIO = 'PRE_MATCH_PLAYOFF_STUDIO',
+  MATCH_LIVE_PLAYOFF = 'MATCH_LIVE_PLAYOFF',
+  POST_MATCH_PLAYOFF_STUDIO = 'POST_MATCH_PLAYOFF_STUDIO',
+}
+
+export interface PlayoffPair {
+  homeId: string;
+  awayId: string;
+  homePos: number;
+  awayPos: number;
+}
+export interface ActivePlayoffDraw {
+  ekstraklasaPlayoffs: PlayoffPair[];
+  ligaOnePlayoffs: PlayoffPair[];
+  relegationPlayoffs: PlayoffPair[];
+}
+
+// ── BARAŻE O UTRZYMANIE — typy wyników ─────────────────────────────────────
+
+// Wynik jednego meczu barażowego
+export interface RelegationPlayoffLegResult {
+  homeId: string;  // ID drużyny gospodarzy
+  awayId: string;  // ID drużyny gości
+  homeGoals: number;
+  awayGoals: number;
+}
+
+// Wyniki rzutów karnych (gdy dwumecz zakończy się remisem)
+export interface RelegationPlayoffPenalties {
+  winnerId: string; // ID drużyny, która wygrała karne
+  homeShots: number;
+  awayShots: number;
+}
+
+// Wyniki 1. meczów (26 maja) — przechowywane w stanie gry do obliczenia agregatu
+export interface RelegationPlayoffFirstLegResults {
+  pair0: RelegationPlayoffLegResult; // 13. miejsce 2.Ligi vs los. 3.Liga
+  pair1: RelegationPlayoffLegResult; // 14. miejsce 2.Ligi vs los. 3.Liga
+}
+
+// Pełny wynik jednej pary (po obu meczach)
+export interface RelegationPlayoffPairOutcome {
+  leg1: RelegationPlayoffLegResult;
+  leg2: RelegationPlayoffLegResult;
+  winnerId: string;  // ID zwycięzcy dwumeczu
+  loserId: string;   // ID przegranego dwumeczu
+  decidedBy: 'AGGREGATE' | 'PENALTIES'; // jak rozstrzygnięto
+  penalties?: RelegationPlayoffPenalties;
+}
+
+// Finalny wynik barażów (po 29 maja) — używany do aktualizacji lig w startNextSeason
+export interface RelegationPlayoffFinalResult {
+  pair0: RelegationPlayoffPairOutcome;
+  pair1: RelegationPlayoffPairOutcome;
+}
+
+// Wynik pojedynczego meczu barażowego o awans (półfinał lub finał)
+export interface PromotionPlayoffSingleMatchResult {
+  homeId: string;
+  awayId: string;
+  homeGoals: number;
+  awayGoals: number;
+  decidedBy: 'REGULAR' | 'EXTRA_TIME' | 'PENALTIES';
+  penalties?: {
+    winnerId: string;
+    homeShots: number;
+    awayShots: number;
+  };
+  winnerId: string;
+}
+
+// Wyniki półfinałów z 31 maja — potrzebne do wyłonienia finalistów 4 czerwca
+export interface PromotionPlayoffSemiResults {
+  ekstraklasaSemi0: PromotionPlayoffSingleMatchResult;
+  ekstraklasaSemi1: PromotionPlayoffSingleMatchResult;
+  ligaOneSemi0: PromotionPlayoffSingleMatchResult;
+  ligaOneSemi1: PromotionPlayoffSingleMatchResult;
+}
+
+// Wyniki finałów z 4 czerwca — używane do zmian ligowych w startNextSeason
+export interface PromotionPlayoffFinalResults {
+  ekstraklasaFinal: PromotionPlayoffSingleMatchResult;
+  ligaOneFinal: PromotionPlayoffSingleMatchResult;
+}
+
+// Dane aktywnego meczu barażowego — przekazywane przez context do silnika meczu i studia
+export interface ActivePlayoffMatchData {
+  matchType: 'RELEGATION_LEG1' | 'RELEGATION_LEG2' | 'PROMOTION_SEMI' | 'PROMOTION_FINAL';
+  homeClub: Club;
+  awayClub: Club;
+  userSide: 'HOME' | 'AWAY';
+  pairIndex: number;                                   // indeks pary w tablicy par (0 lub 1)
+  leagueContext?: 'EKSTRAKLASA' | 'LIGA_ONE';          // tylko dla baraży o awans
+  firstLegResult?: RelegationPlayoffLegResult;                      // tylko dla RELEGATION_LEG2
+  otherRelegationPairOutcome?: RelegationPlayoffPairOutcome;         // tylko dla RELEGATION_LEG2
+  otherPromotionSemiResults?: Partial<PromotionPlayoffSemiResults>;  // tylko dla PROMOTION_SEMI
+  otherPromotionFinalResult?: PromotionPlayoffSingleMatchResult;     // tylko dla PROMOTION_FINAL
 }
 
 export enum MailType {
@@ -238,6 +342,7 @@ export enum EventKind {
   CUP_DRAW = 'CUP_DRAW',
   // Dzień meczowy reprezentacji (symulacja w tle, gracz widzi wyniki)
   NATIONAL_TEAM_MATCH = 'NATIONAL_TEAM_MATCH',
+  PLAYOFF_DRAW = 'PLAYOFF_DRAW',
   NONE = 'NONE'
 }
 
@@ -312,6 +417,12 @@ export enum CompetitionType {
   CONF_SF_RETURN = 'CONF_SF_RETURN',
   CONF_FINAL_DRAW = 'CONF_FINAL_DRAW',
   CONF_FINAL = 'CONF_FINAL',
+  PLAYOFF_DRAW_CEREMONY = 'PLAYOFF_DRAW_CEREMONY',
+  PROMOTION_PLAYOFF_31_MAY = 'PROMOTION_PLAYOFF_31_MAY',
+  PROMOTION_PLAYOFF_4_JUNE = 'PROMOTION_PLAYOFF_4_JUNE',
+  // ── BARAŻE O UTRZYMANIE ─────────────────────────────────────────────────
+  RELEGATION_PLAYOFF_1 = 'RELEGATION_PLAYOFF_1', // 26 maja — 1. mecze (13. i 14. 2.Ligi vs 3.Liga)
+  RELEGATION_PLAYOFF_2 = 'RELEGATION_PLAYOFF_2', // 29 maja — rewanże + rozstrzygnięcie
 }
 
 export enum SlotType {
@@ -745,6 +856,7 @@ export type InstructionMindset = 'DEFENSIVE' | 'NEUTRAL' | 'OFFENSIVE';
 export type InstructionIntensity = 'CAUTIOUS' | 'NORMAL' | 'AGGRESSIVE';
 export type InstructionPassing = 'SHORT' | 'MIXED' | 'LONG';
 export type InstructionPressing = 'NORMAL' | 'PRESSING';
+export type InstructionCounterAttack = 'NORMAL' | 'COUNTER';
 
 export interface TacticalInstructions {
   tempo: InstructionTempo;
@@ -752,6 +864,7 @@ export interface TacticalInstructions {
   intensity: InstructionIntensity;
   passing: InstructionPassing;
   pressing: InstructionPressing;
+  counterAttack?: InstructionCounterAttack;
   lastChangeMinute: number;
   expiryMinute: number;
   tempoExpiry: number;
@@ -762,11 +875,13 @@ export interface TacticalInstructions {
   intensityCooldown: number;
   passingCooldown: number;
   pressingCooldown: number;
+  counterAttackCooldown?: number;
   tempoResponseFactor: number;
   mindsetResponseFactor: number;
   intensityResponseFactor: number;
   passingResponseFactor: number;
   pressingResponseFactor: number;
+  counterAttackResponseFactor?: number;
 }
 export interface SubstitutionRecord {
   playerOutId: string;
